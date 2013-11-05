@@ -1051,6 +1051,7 @@ type
         g.table[m.next.x,m.next.y] := g.table[m.from.x,m.from.y];
         g.table[m.from.x,m.from.y].kind := None;
     end;
+    {Случайное расположение фигур, если сгенерировалась расстановка в матом - перегенерация.}
     function RandomGame(const _blackAmount,_whiteAmount:integer):Game_t;
     var
         coord,g1,g2:Coordinate;
@@ -1140,15 +1141,11 @@ type
         end;
     end;
     {Главная процедура, точка входа игры, вечный цикл - цикл игры. Игра до тех пор, пока один их игроков не получит мат/вечный шах/4ех кратное повторение}
-    procedure Play;
+    procedure Play(game:Game_t);
     var 
-        game : Game_t;
         check:boolean;
     begin
-        game := RandomGame(10,10);
-        game.OnMoveRead^ := @ReadAndProccessChineeseNotation;{Люблю костыли}
         check := false;
-        UpdateHash(game);
         while true do begin
             PrintTable(game);
             //writeln(HashTable(game));
@@ -1189,9 +1186,48 @@ type
         ResetHashes(game);
         dispose(game.OnMoveRead);
     end;
+    {Главная точка входа, меню выбора/интерфейс.}
+    procedure Main;
+    var
+        game_type,notation:char; 
+        blackAmount,whiteAmount:integer; 
+        chinese:boolean;
+        game:Game_t;
+    begin
+        writeln('Chinese Chess! Welcome!');
+        writeln('Game types:');
+        writeln(' N) Default game: Player versus Player');
+        writeln(' D) Debug game');
+        writeln(' R) Random game');
+        repeat
+            write('Enter type:');
+            readln(game_type);
+        until (game_type in ['D','N','R']);
+        if(game_type = 'R') then begin
+            repeat
+                write('Input range for random game(2 numbers in 1..16, black and white):');
+                readln(blackAmount,whiteAmount);
+            until ((blackAmount in [1..16]) and (whiteAmount in [1..16]));
+        end;
+        write('Chinese or euro notation?[C - for chinese/ otherwise or E for euro]:');
+        readln(notation);
+        chinese := notation = 'C';
 
+        if(game_type ='R') then begin
+            game := RandomGame(blackAmount,whiteAmount);
+        end else if(game_type = 'D') then begin
+            game := DebugGame;
+        end else
+            game := DefaultGame;
+        if(chinese) then
+            game.OnMoveRead^ := @ReadAndProccessChineeseNotation{Люблю костыли}
+        else
+            game.OnMoveRead^ := @ReadNext;
+        UpdateHash(game);
+        Play(game);
+    end;
 begin
     randomize;
     {Запуск игры}
-    Play; {Ненавижу китайскую нотацию.}
+    Main; {Ненавижу китайскую нотацию.}
 end.
