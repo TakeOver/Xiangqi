@@ -1,4 +1,4 @@
-const 
+const  
     Height = 10;
     Width = 9;
     None = 'N';
@@ -57,6 +57,26 @@ type
         OnMoveRead : PMoveHandler;
     end;
     MoveHandler = function(var game:Game_t):Move_t;
+    
+    function RandomCoordinate(var game:Game_t; fromx,nextx:integer; _fromy,_nexty:char):Coordinate;
+    var
+        fromy,nexty:integer;
+        res:Coordinate;
+    begin
+        fromy := ord(_fromy) - ord('a');
+        nexty := ord(_nexty) - ord('a');
+        if(fromx >= nextx) then 
+            res.x := fromx
+        else begin
+            res.x := fromx + (random(nextx - fromx + 1));
+        end;
+        if(fromy >= nexty) then 
+            res.y := _fromy
+        else begin
+            res.y := chr(ord('a') + fromy + random(nexty - fromy + 1));
+        end;
+        RandomCoordinate := res;
+    end;
     {Функция рассчета Хэша от таблицы.} {$I-}
     function HashTable(const g:Game_t):int64;
     var
@@ -422,6 +442,8 @@ type
         t:Game_t;
     begin
         new(t.OnMoveRead);
+        t.hashes := nil;
+        t.tail := nil;
         for i := 0 to Height - 1 do begin
             for j := 'a' to 'i' do begin 
                 t.table[i,j].kind := None;
@@ -461,6 +483,8 @@ type
         t:Game_t;
     begin
         new(t.OnMoveRead);
+        t.hashes := nil;
+        t.tail := nil;
         for i := 0 to Height - 1 do begin
             for j := 'a' to 'i' do begin 
                 t.table[i,j].kind := None;
@@ -1027,13 +1051,101 @@ type
         g.table[m.next.x,m.next.y] := g.table[m.from.x,m.from.y];
         g.table[m.from.x,m.from.y].kind := None;
     end;
+    function RandomGame(const _blackAmount,_whiteAmount:integer):Game_t;
+    var
+        coord,g1,g2:Coordinate;
+        game:Game_t;
+        j:char;
+        move:Move_t;
+        n,i,blackAmount,whiteAmount:integer;
+        Counter: array ['A'..'Z',Color_t] of Integer;
+        Limits: array ['A'..'Z'] of integer;
+        Figures: array [1..7] of char = ('G','A','R','S','C','H','E');
+        procedure Generate(color:Color_t);
+        begin
+            repeat 
+                n := random(7) + 1;
+                j := Figures[n];
+            until not (Counter[j][color] >= Limits[j]);
+            repeat
+                if j = 'E' then begin
+                    coord := RandomCoordinate(game,0+ord(color)*5,4+ord(color)*5,'a','i')
+                end else begin
+                    coord := RandomCoordinate(game,0,9,'a','i');
+                end;
+            until game.table[coord.x,coord.y].kind = None;
+            inc(Counter[j][color]);
+            game.table[coord.x,coord.y].kind := j;
+            game.table[coord.x,coord.y].color := color;
+        end;
+    begin
+        move.kind := General;
+        blackAmount := _blackAmount;
+        whiteAmount := _whiteAmount;
+        new(game.OnMoveRead);
+        game.hashes := nil;
+        game.tail := nil;
+        for i := 0 to Height - 1 do begin
+            for j := 'a' to 'i' do begin 
+                game.table[i,j].kind := None;
+                game.table[i,j].color := White;
+            end;
+        end;
+        for j := 'A' to 'Z' do begin
+            Counter[j][White] := 0;
+            Counter[j][Black] := 0;
+            Limits[j] := 0;
+        end;
+        game.turn := White;
+        coord := RandomCoordinate(game,0,2,'d','f');
+        game.table[coord.x,coord.y].color := White;
+        game.table[coord.x,coord.y].kind := General;
+        g1 := coord;
+        coord := RandomCoordinate(game,7,9,'d','f');
+        game.table[coord.x,coord.y].color := Black;
+        game.table[coord.x,coord.y].kind := General;
+        g2 := coord;
+        Limits['H'] := 2;
+        Limits['E'] := 2;
+        Limits['A'] := 2;
+        Limits['S'] := 5;
+        Limits['C'] := 2;
+        Limits['R'] := 2; 
+        dec(blackAmount);
+        dec(whiteAmount);
+        while( blackAmount + whiteAmount > 0) do begin
+            if(blackAmount > 0) then begin
+                Generate(Black);
+                dec(blackAmount);
+            end;
+            if(whiteAmount > 0) then begin
+                Generate(White);
+                dec(whiteAmount);
+            end;
+        end;
+        move.from := g1;
+        move.next := g2;
+        if(IsInCheck(game) and IsInMate(game)) or IsCorrectMove(move,game) then begin
+            RandomGame := RandomGame(_blackAmount,_whiteAmount);
+            dispose(game.OnMoveRead);
+        end else begin
+            game.turn := Black;
+            move.next := g1;
+            move.from := g2;
+            if(IsInCheck(game) and IsInMate(game)) or IsCorrectMove(move,game) then begin
+                RandomGame := RandomGame(_blackAmount,_whiteAmount);
+                dispose(game.OnMoveRead);
+            end else
+                RandomGame := game;
+        end;
+    end;
     {Главная процедура, точка входа игры, вечный цикл - цикл игры. Игра до тех пор, пока один их игроков не получит мат/вечный шах/4ех кратное повторение}
     procedure Play;
     var 
         game : Game_t;
         check:boolean;
     begin
-        game := DefaultGame;
+        game := RandomGame(10,10);
         game.OnMoveRead^ := @ReadAndProccessChineeseNotation;{Люблю костыли}
         check := false;
         UpdateHash(game);
@@ -1079,6 +1191,7 @@ type
     end;
 
 begin
+    randomize;
     {Запуск игры}
     Play; {Ненавижу китайскую нотацию.}
 end.
