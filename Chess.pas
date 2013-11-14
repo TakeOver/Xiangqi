@@ -1,6 +1,11 @@
+uses math;
 const  
     Height = 10;
+    HalfMovesDescrease = 0;
+    SearchDepth = 6; {Глубина работы ABP/число полуходов}
     Width = 9;
+    MateValue = 100000;
+    PatValue = 0;
     None = 'N';
     Rock = 'R';
     Horse = 'H';
@@ -31,7 +36,8 @@ type
         kind:Figure_t;
         position:Coordinate;
     end;
-    
+
+
     Table_t = array [0..9,'a'..'i'] of Figure;
     {HashList будет использоваься для хранения оптимизации сравнения двух таблиц для нахождения 4ех повторений позиций.}
     PHashList = ^HashList;
@@ -43,21 +49,66 @@ type
     end;
     {Будет использоваться для генерации всех ходов и проверки шаха}
     FigureList = array [1..16] of FigureInfo;
+    MoveArray = array[0..200] of Move_t;
     {Для проверки мата}
     MovesList = record 
-        moves: array[1..200] of Move_t;
+        moves:MoveArray;
         length:integer;
     end;
     {Главная структура игры.}
+    PMoveFunction = ^MoveFunction;
     PMoveHandler = ^MoveHandler;
     Game_t = record
         table:Table_t;
         turn:Color_t;
+        PlayerOne,PlayerTwo:PMoveFunction;
         hashes,tail:PHashList;
         OnMoveRead : PMoveHandler;
     end;
     MoveHandler = function(var game:Game_t):Move_t;
-    
+    MoveFunction = function(var game:Game_t; depth:integer):boolean;
+
+    function FigureCost(fig:FigureInfo; var game:Game_t):integer;
+    begin
+        case fig.kind of 
+            Elephant, Advisor : FigureCost := 16;
+            Horse : FigureCost := 32;
+            Canon : FigureCost := 36;
+            Rock : FigureCost := 72;
+            None: FigureCost := 0;
+            General: FigureCost := 0;
+            Pawn: begin
+                if (fig.position.x in [5..9]) and (game.turn = White) or (fig.position.x in [0..4]) and (game.turn = Black) then
+                    FigureCost := 16
+                else
+                    FigureCost := 8;
+            end;
+        end;
+    end;
+    function FigureCostMove(move:Move_t; var game:Game_t):integer;
+    begin
+   //     writeln('/b/:',move.next.x,move.next.y);
+        case game.table[move.next.x,move.next.y].kind of 
+            Elephant, Advisor : FigureCostMove := 16;
+            Horse : FigureCostMove := 32;
+            Canon : FigureCostMove := 36;
+            Rock : FigureCostMove := 72;
+            None: FigureCostMove := 0;
+            General: FigureCostMove := 0;
+            Pawn: begin
+                if (move.next.x in [5..9]) and (game.turn = White) or (move.next.x in [0..4]) and (game.turn = Black) then
+                    FigureCostMove := 16
+                else
+                    FigureCostMove := 8;
+            end;
+        end;
+    end;
+    procedure MakeMove(var game:Game_t; var move:Move_t);
+    begin
+        game.table[move.next.x,move.next.y] := game.table[move.from.x,move.from.y];
+        game.table[move.from.x,move.from.y].kind := None;
+    end;
+
     function RandomCoordinate(var game:Game_t; fromx,nextx:integer; _fromy,_nexty:char):Coordinate;
     var
         fromy,nexty:integer;
@@ -78,7 +129,7 @@ type
         RandomCoordinate := res;
     end;
     {Функция рассчета Хэша от таблицы.} {$I-}
-    function HashTable(const g:Game_t):int64;
+    function HashTable(var g:Game_t):int64;
     var
         i,fix:integer;
         h:int64;
@@ -92,7 +143,7 @@ type
                 h := h + ((ord(g.table[i,j].kind )+i) shl (fix xor (ord(j) * i)));
             end;
         end;
-        HashTable := h;
+        HashTable := h + ord(g.turn);
     end;{$I+}
     {Функция генерации хэш-узла для хэш-списка}
     function CreateHashNode(var g:Game_t;hash:int64):PHashList;
@@ -162,12 +213,6 @@ type
         end;
         g.hashes := nil;
     end;
-    {Функция для дебага}
-    function ASSERT(b:boolean; s:string):integer;
-    begin
-        if not b then begin writeln(s); ASSERT := 1 div ord(b); end;
-        ASSERT := 0;
-    end; 
     {Добавление элемента в конец списка фигур}
     procedure PushToList(var fList:FigureList; const f:Figure_t; const c:Coordinate; const x:integer);
     begin
@@ -175,7 +220,7 @@ type
         fList[x].position := c;
     end;
     {Функция взятия всех фигур, что еще живы.}
-    function GetEnemyFigures(const g:Game_t):FigureList;
+    function GetEnemyFigures(var g:Game_t):FigureList;
     var
         count,i:integer;
         j:char;
@@ -185,14 +230,19 @@ type
         count := 0;
         for i := 0 to 9 do begin
             for j:= 'a' to 'i' do begin
+              //  writeln(count);
                 if (g.table[i,j].color <> g.turn) and (g.table[i,j].kind <> None) then begin
-                    inc(count);
+                    count := count +1;
                     c.x := i; c.y := j;
                     PushToList(list,g.table[i,j].kind,c,count);
                 end;
             end;
         end;
         GetEnemyFigures := list;
+    end;
+    procedure ChangeTurn(var game:Game_t);
+    begin
+        game.turn := Color_t(1 - ord(game.turn));
     end;
     {Тк для каждой стороны своя нумерация строк, то эта функция "чинит" нумерацию относительно белых}
     function fixXCoordinates(i:integer;c:Color_t):integer;
@@ -362,12 +412,12 @@ type
             end;
             Horse: begin
                 move.next := move.from;
-                write(offset,' ');
+            //    write(offset,' ');
                 if(game.turn = Black) then 
                     offset := Width  + offset
                 else 
                     dec(offset);
-                writeln(offset);
+              //  writeln(offset);
                 if(offsetTy = '=') then begin
                     move.kind := None;
                     ReadAndProccessChineeseNotation := move;
@@ -523,7 +573,7 @@ type
         DebugGame := t;
     end;
     {Процедура печати таблицы на экран с учетом различной разметки для каждого игрока}
-    procedure PrintTable(const g:Game_t);
+    procedure PrintTable(var g:Game_t);
     var 
         i,fixedX:integer;
         j,fixedKind,fixedY:char;
@@ -549,14 +599,22 @@ type
             write(j,' ');
         writeln;
     end;
+    {Функция для дебага}
+    function ASSERT(var game:Game_t; b:boolean; s:string):integer;
+    begin
+        PrintTable(game);
+        if not b then begin writeln(s); ASSERT := 1 div ord(b); end;
+        ASSERT := 0;
+    end; 
     {Функция взятия генерала того же цвета, что и текущий ход.}
-    function GetGeneral(const g:Game_t):Coordinate;
+    
+    function GetGeneral(var g:Game_t; color:Color_t):Coordinate;
     var
         i,off:integer;
         j:char;
         c:Coordinate;
     begin
-        off := ord(g.turn)*7;
+        off := ord(color)*7;
         for i := 0+off to 2+off do begin
             for j:= 'd' to 'f' do begin
                 if (g.table[i,j].kind = General) then begin
@@ -567,7 +625,11 @@ type
                 end;
             end;
         end;
-        ASSERT(false,'Unreachable');
+        ASSERT(g,false,'Unreachable');
+    end;
+    function GetGeneral(var g:Game_t):Coordinate;
+    begin
+        GetGeneral := GetGeneral(g,g.turn);
     end;
     {Корректность координаты}
     function IsCorrectCoord(const c:Coordinate): boolean;
@@ -575,17 +637,17 @@ type
         IsCorrectCoord := (c.x in [0..9]) and (c.y in ['a'..'i']);
     end;
     {Свободность слота}
-    function IsFreeSlot(const c:Coordinate; const t:Table_t):boolean;
+    function IsFreeSlot(const c:Coordinate; var t:Table_t):boolean;
     begin
         IsFreeSlot := t[c.x,c.y].kind = None;
     end;
     {проверка на занятость слота вражеской фигурой}
-    function IsEnemySlot(const color:Color_t; const c:Coordinate; const t:Table_t):boolean;
+    function IsEnemySlot(const color:Color_t; const c:Coordinate;var t:Table_t):boolean;
     begin
         IsEnemySlot := (not IsFreeSlot(c,t)) and (t[c.x,c.y].color <> color);
     end;
     {Следующие функции вида IsCorrect*Move  - функции проверки корректности хода в завимости от фигуры, предполагается, что координаты корректны}
-    function IsCorrectRockMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectRockMove(const move:Move_t;var g:Game_t):boolean;
     var 
         i,dx,dy,nx,ex:integer;
         j,ny,ey:char;
@@ -630,7 +692,7 @@ type
             IsCorrectRockMove := false;
     end;
     
-    function IsCorrectHorseMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectHorseMove(const move:Move_t;var g:Game_t):boolean;
     var
         dx,dy:integer;
         c:Coordinate;
@@ -658,7 +720,7 @@ type
         IsCorrectHorseMove := true;
     end;
     
-    function IsCorrectElephantMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectElephantMove(const move:Move_t;var g:Game_t):boolean;
     var
         dx,dy:integer;
     begin
@@ -667,7 +729,7 @@ type
         IsCorrectElephantMove := (((dx = dy) and (dx = 2) )) and (not ((g.turn = White) and (move.next.x in [5..9]) or (g.turn = Black) and (move.next.x in [0..4]))); 
     end;
     
-    function IsCorrectAdvisorMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectAdvisorMove(const move:Move_t;var g:Game_t):boolean;
     var
         dx,dy:integer;
     begin
@@ -677,7 +739,7 @@ type
 
     end;
     
-    function IsCorrectGeneralMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectGeneralMove(const move:Move_t;var g:Game_t):boolean;
     var
         dx,dy:integer;
     begin
@@ -690,7 +752,7 @@ type
         IsCorrectGeneralMove := (dx + dy = 1) and (move.next.x in [0,1,2,7,8,9]) and (move.next.y in ['d','e','f']);
     end;
     
-    function IsCorrectCanonMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectCanonMove(const move:Move_t;var g:Game_t):boolean;
     var 
         dx,dy,i,ex,nx:integer;
         j,ey,ny:char;
@@ -745,7 +807,7 @@ type
         end;
     end;
     
-    function IsCorrectPawnMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectPawnMove(const move:Move_t;var g:Game_t):boolean;
     var 
         dx,dy:integer;
         isDyPossible:boolean;
@@ -758,13 +820,13 @@ type
         dy := abs(ord(move.next.y) - ord(move.from.y));
         isDyPossible := (g.turn = White) and (move.from.x >=5) or (g.turn = Black) and (move.from.x <=4);
         if dy <> 0 then begin
-            IsCorrectPawnMove := (dy = 1) and (isDyPossible);
+            IsCorrectPawnMove := (dy = 1) and (isDyPossible) and (dx = 0);
             exit;
         end;
         IsCorrectPawnMove := dx = 1;
     end;
     {Общая проверка корректности хода для всех фигур.}
-    function IsCorrectMove(const move:Move_t;const g:Game_t):boolean;
+    function IsCorrectMove(const move:Move_t;var g:Game_t):boolean;
     begin
         if (not IsCorrectCoord(move.from)) or (not IsCorrectCoord(move.next)) or (g.table[move.from.x,move.from.y].kind <> move.kind) or IsEnemySlot(g.turn,move.from,g.table) or  
             (not IsFreeSlot(move.next,g.table)) and (not IsEnemySlot(g.turn,move.next,g.table)) then begin
@@ -801,6 +863,7 @@ type
             move.from := list[i].position;
             if(IsCorrectMove(move,g)) then begin
                 IsInCheck := true;
+           //     writeln('Check from:', move.kind, ' ', move.from.x, move.from.y);
                 break;
             end;
         end;
@@ -823,16 +886,14 @@ type
         inc(move.next.x);
         if(IsCorrectMove(move,g)) then 
             AddMove(res,move);
-        move.next := move.from;
-        dec(move.next.x);
+        dec(move.next.x,2);
         if(IsCorrectMove(move,g)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.y);
         if(IsCorrectMove(move,g)) then 
             AddMove(res,move);
-        move.next := move.from;
-        dec(move.next.y);
+        dec(move.next.y,2);
         if(IsCorrectMove(move,g)) then 
             AddMove(res,move);
     end;    
@@ -998,9 +1059,7 @@ type
     begin
         tmp1 := g.table[move.from.x,move.from.y];
         tmp2 := g.table[move.next.x,move.next.y];
-        g.table[move.from.x,move.from.y].kind := None;
-        g.table[move.next.x,move.next.y] := tmp1;
-        
+        MakeMove(g,move);
         CheckPossible := IsInCheck(g);
       
       //  writeln('DEBUG: CheckPossible');
@@ -1025,11 +1084,197 @@ type
             end; 
         end;
     end;
+    function CalcTableValueForPlayer(var game:Game_t):longint;
+    var
+        i:integer;
+        j:char;
+        res:longint = 0;
+        move:Move_t;
+        fig:FigureInfo;
+      {  function DegreeOfFreedom(coord:Coordinate):longint;
+        var res:longint = 0;
+        begin
+            if(coord.x <> 9) then begin
+                if(game.table[coord.x + 1,coord.y].kind = None) then
+                    inc(res);
+            end else
+                inc(res);
+            if(coord.x <> 0) then begin
+                if(game.table[coord.x - 1,coord.y].kind = None) then
+                    inc(res);
+            end else
+                inc(res);
+            if(coord.y <> 'i') then begin
+                if(game.table[coord.x,succ(coord.y)].kind = None) then
+                    inc(res);
+            end else
+                inc(res);
+            if(coord.y <> 'a') then begin
+                if(game.table[coord.x,pred(coord.y)].kind = None) then
+                    inc(res);
+            end else
+                inc(res);
+            DegreeOfFreedom := res;
+        end;}
+    begin
+        move.next := GetGeneral(game,Color_t(1-ord(game.turn)));
+        move.kind := General;
+        for i := 0 to Height - 1 do begin
+            for j := 'a' to 'i' do begin
+            fig.kind := game.table[i,j].kind;
+            fig.position.x := i;
+            fig.position.y := j;
+                res := res + (integer(game.turn = game.table[i,j].color))*FigureCost(fig,game){ + DegreeOfFreedom(fig.position)};
+            end;
+            move.from := fig.position;
+            if(IsCorrectMove(move,game)) then
+                inc(res,FigureCost(fig,game) shr 1);
+        end;
+        CalcTableValueForPlayer := res;
+    end;
+    function CalcTableValueForOppositePlayer(var game:Game_t):longint;
+    begin
+        ChangeTurn(game);
+        CalcTableValueForOppositePlayer := CalcTableValueForPlayer(game);
+        ChangeTurn(game);
+    end;
+    
+    procedure qSort(var game:Game_t;var ar: MovesList);
+        function MakesCheck(move: Move_t):boolean;
+        begin
+            move.from := move.next;
+            ChangeTurn(game);
+            move.next := GetGeneral(game);
+            ChangeTurn(game);
+            MakesCheck := IsCorrectMove(move,game);
+        end;
+      // Вложенная функция сортировки для рекурсивного вызова
+      // Нужна, чтобы не передавать в вызов основной функции границы массива
+        procedure sort(var ar: MoveArray; low, high: integer);
+        var i, j: integer;
+            wsp: Move_t;
+            m:integer;
+        begin
+        // repeat
+            i:=low; j:=high; // Взятие среднего опорного элемента
+          
+            m := FigureCostMove(ar[(i+j) div 2],game);{
+            if(MakesCheck(ar[(i+j) div 2])) then
+                m := 10;}
+            repeat
+                while (FigureCostMove(ar[i],game)>m) {or (MakesCheck(ar[i])) and (10 > m)} do 
+                    Inc(i); 
+                while (FigureCostMove(ar[j],game)<m) {or (not MakesCheck(ar[j])) and (10 < m)} do 
+                    Dec(j); 
+                if i<=j then begin
+                    wsp:=ar[i]; 
+                    ar[i]:=ar[j]; 
+                    ar[j]:=wsp;
+                    Inc(i); 
+                    Dec(j);
+                end;
+            until i>j;
+        // if (j - low) < (high - i) then begin 
+            if low<j then sort(ar, low, j);
+        // low := i;
+        //   end 
+        // else begin
+            if i<high then sort(ar, i, high);
+        // high := j;
+        // end; 
+        //until low = high;
+        end;
+    begin
+      sort(ar.moves,1,ar.length);
+    end;
+    
+    function AlphaBetaPuring(var game:Game_t;depth, alpha,beta, ply:longint):longint;
+    var
+        moves:MovesList;
+        tmp2,tmp1:Figure;
+        i:integer;
+        val:longint;
+        flag:boolean = false;
+    begin
+       // writeln(ply,' ', depth,' ', alpha, ' ', beta);
+        if(depth = 0) then begin
+            AlphaBetaPuring := CalcTableValueForPlayer(game) - CalcTableValueForOppositePlayer(game);
+            exit;
+        end;
+        moves := GenerateAllPossibleMoves(game);
+        qSort(game,moves);
+        for i := 1 to moves.length do begin
+            tmp1 := game.table[moves.moves[i].from.x,moves.moves[i].from.y];
+            tmp2 := game.table[moves.moves[i].next.x,moves.moves[i].next.y];
+            //if(tmp2.kind = General) then begin
+            //    AlphaBetaPuring := -MateValue;
+            //    exit;
+            //end;
+           if( not CheckPossible(moves.moves[i],game)) then begin
+                MakeMove(game,moves.moves[i]);
+                ChangeTurn(game);
+                val := -AlphaBetaPuring(game, depth -1,-beta,-alpha,ply+1);
+                if(val > alpha) then begin
+                    if (val >= beta) then begin
+              //          writeln(alpha, ' ', beta, ' ', depth, ' ', ord(game.turn), ' ',val);
+                        AlphaBetaPuring := beta;
+                        flag := true;
+                    end;
+                    alpha := val;
+                end;
+                ChangeTurn(game);
+                game.table[moves.moves[i].from.x,moves.moves[i].from.y] := tmp1;
+                game.table[moves.moves[i].next.x,moves.moves[i].next.y] := tmp2;
+                if flag then
+                    break;
+            end;
+        end;
+        if(moves.length  = 0) then begin
+            if (IsInCheck(game)) then begin
+                AlphaBetaPuring := -MateValue + ply
+            end else begin
+                AlphaBetaPuring := -PatValue;
+            end;
+        end else if not flag then 
+            AlphaBetaPuring := alpha;
+    end;
+    function AIMove(var game:Game_t; depth:integer):boolean;
+    var
+        moves:MovesList; 
+        i:integer;
+        tmp1,tmp2:Figure;
+        maxmove:Move_t;
+        maxval,alphabeta:longint;
+    begin
+        AIMove := true;
+        maxval :=  MateValue;
+        moves := GenerateAllPossibleMoves(game);
+        for i := 1 to moves.length do begin {Обработка первого уровня дерева, корневого, то есть, если мы хотим расчет на N полуходов, то в вызове функции ABP должна быть глубина N-1.}
+            if(not CheckPossible(moves.moves[i],game)) then begin
+                tmp1 := game.table[moves.moves[i].from.x,moves.moves[i].from.y];
+                tmp2 := game.table[moves.moves[i].next.x,moves.moves[i].next.y];
+                MakeMove(game,moves.moves[i]);
+                ChangeTurn(game);
+                alphabeta := AlphaBetaPuring(game,depth - 1,-maxval,MateValue,1);{Итого у нас расчет на 4 полухода.}
+                if alphabeta <= maxval then begin
+                    maxmove := moves.moves[i];
+                    maxval := alphabeta;
+                end;
+                ChangeTurn(game);
+                game.table[moves.moves[i].from.x,moves.moves[i].from.y] := tmp1;
+                game.table[moves.moves[i].next.x,moves.moves[i].next.y] := tmp2;
+            end;
+        end;
+        game.table[maxmove.next.x,maxmove.next.y] := game.table[maxmove.from.x,maxmove.from.y];
+        game.table[maxmove.from.x,maxmove.from.y].kind := None;
+        ChangeTurn(game);
+    end;    
     {Считывание хода  и его исполнение в случае корректности}
-    procedure PlayMove(var g:Game_t);
+    function PlayMove(var g:Game_t; depth:integer):boolean;
     var
         m:Move_t;
     begin
+        PlayMove := true;
         write('Input >');
         m := g.OnMoveRead^(g);
         
@@ -1047,9 +1292,7 @@ type
         if(g.table[m.next.x,m.next.y].kind <> None) or (m.kind = Pawn) and (m.from.x <> m.next.x) then begin
             ResetHashes(g);
         end;
-        
-        g.table[m.next.x,m.next.y] := g.table[m.from.x,m.from.y];
-        g.table[m.from.x,m.from.y].kind := None;
+        MakeMove(g,m);
     end;
     {Случайное расположение фигур, если сгенерировалась расстановка в матом - перегенерация.}
     function RandomGame(const _blackAmount,_whiteAmount:integer):Game_t;
@@ -1071,6 +1314,8 @@ type
             repeat
                 if j = 'E' then begin
                     coord := RandomCoordinate(game,0+ord(color)*5,4+ord(color)*5,'a','i')
+                end else if j = 'A' then begin
+                    coord := RandomCoordinate(game,0+ord(color)*7,2+ord(color)*7,'d','f')
                 end else begin
                     coord := RandomCoordinate(game,0,9,'a','i');
                 end;
@@ -1126,52 +1371,62 @@ type
         end;
         move.from := g1;
         move.next := g2;
-        if(IsInCheck(game) and IsInMate(game)) or IsCorrectMove(move,game) then begin
+        if(IsInMate(game)) or IsCorrectMove(move,game) then begin
             RandomGame := RandomGame(_blackAmount,_whiteAmount);
             dispose(game.OnMoveRead);
         end else begin
             game.turn := Black;
             move.next := g1;
             move.from := g2;
-            if(IsInCheck(game) and IsInMate(game)) or IsCorrectMove(move,game) then begin
+            if(IsInMate(game)) or IsCorrectMove(move,game) then begin
                 RandomGame := RandomGame(_blackAmount,_whiteAmount);
                 dispose(game.OnMoveRead);
-            end else
+            end else begin
+                game.turn := White;
                 RandomGame := game;
+            end;
         end;
     end;
     {Главная процедура, точка входа игры, вечный цикл - цикл игры. Игра до тех пор, пока один их игроков не получит мат/вечный шах/4ех кратное повторение}
     procedure Play(game:Game_t);
     var 
         check:boolean;
+        movesCount:integer = 0;
     begin
-        check := false;
+        check := IsInCheck(game);
         while true do begin
+            inc(movesCount);
             PrintTable(game);
-            //writeln(HashTable(game));
 
-            if check then begin 
-                if IsInMate(game) then begin
+            if IsInMate(game) then begin 
+                if check then begin
                     write('Mate!');
                     if(game.turn = White) then begin
                         writeln(' Black wins!') 
                     end else begin
                         writeln(' White wins!');
                     end;
-                    break;
-                end;
+                end else
+                    writeln('Pat!');
+                break;
             end;
-            PlayMove(game);
+            if(game.turn = White) then begin
+                game.PlayerOne^(game,SearchDepth - ord(movesCount < HalfMovesDescrease))
+            end else begin
+                game.PlayerTwo^(game,SearchDepth - ord(movesCount < HalfMovesDescrease));
+            end;
             
             check := IsInCheck(game);
             
             case (UpdateHash(game)) of
             4:  begin{Вау, ничья, аш 4 хода уже повторилось}
+                    PrintTable(game);
                     writeln('Draw!');
                     break;
                 end;
-            1,3:begin end;
-            2:  begin{2 повторения с шахом, дающий шах - проиграл, мвахахахаха}
+            1,2:begin end;
+            3:  begin{2 повторения с шахом, дающий шах - проиграл, мвахахахаха}
+                    PrintTable(game);
                     if check then begin
                         if(game.turn = White) then begin
                             writeln('Infinite check! White wins!')
@@ -1183,36 +1438,44 @@ type
                 end;
             end;
         end;
-        ResetHashes(game);
-        dispose(game.OnMoveRead);
     end;
     {Главная точка входа, меню выбора/интерфейс.}
     procedure Main;
     var
-        game_type,notation:char; 
+        P1,P2,v,game_type,notation:char; 
         blackAmount,whiteAmount:integer; 
         chinese:boolean;
         game:Game_t;
     begin
         writeln('Chinese Chess! Welcome!');
         writeln('Game types:');
-        writeln(' N) Default game: Player versus Player');
+        writeln(' N) Default game');
         writeln(' D) Debug game');
         writeln(' R) Random game');
+        
         repeat
             write('Enter type:');
             readln(game_type);
         until (game_type in ['D','N','R']);
+        
         if(game_type = 'R') then begin
             repeat
                 write('Input range for random game(2 numbers in 1..16, black and white):');
                 readln(blackAmount,whiteAmount);
             until ((blackAmount in [1..16]) and (whiteAmount in [1..16]));
         end;
-        write('Chinese or euro notation?[C - for chinese/ otherwise or E for euro]:');
-        readln(notation);
+        
+        repeat 
+            write('Chinese or euro notation?[C - for chinese/E - for euro]:');
+            readln(notation);
+        until (notation in ['C','E']);
         chinese := notation = 'C';
-
+        
+        repeat
+            write('Input game type(PvP,EvE,PvE,EvP):');
+            readln(P1,v,P2);
+        until ((P1 in ['P','E']) and (P2 in ['P','E']) and (v = 'v'));
+        
         if(game_type ='R') then begin
             game := RandomGame(blackAmount,whiteAmount);
         end else if(game_type = 'D') then begin
@@ -1223,8 +1486,27 @@ type
             game.OnMoveRead^ := @ReadAndProccessChineeseNotation{Люблю костыли}
         else
             game.OnMoveRead^ := @ReadNext;
+
+        new(game.PlayerTwo);
+        new(game.PlayerOne);
+
+        if(P1 = 'P') then 
+            game.PlayerOne^ := @PlayMove
+        else
+            game.PlayerOne^ := @AIMove;
+
+        if(P2 = 'P') then 
+            game.PlayerTwo^ := @PlayMove
+        else
+            game.PlayerTwo^ := @AIMove;
         UpdateHash(game);
+        game.turn := White;
         Play(game);
+        ResetHashes(game);
+        
+        dispose(game.OnMoveRead);
+        dispose(game.PlayerTwo);
+        dispose(game.PlayerOne);
     end;
 begin
     randomize;
