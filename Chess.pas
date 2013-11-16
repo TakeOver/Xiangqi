@@ -572,7 +572,7 @@ type
         DebugGame := game;
     end;
     {Процедура печати таблицы на экран с учетом различной разметки для каждого игрока}
-    procedure PrintTable(var g:Game_t);
+    procedure PrintTable(var game:Game_t);
     var 
         i,fixedX:integer;
         j,fixedKind,fixedY:char;
@@ -580,11 +580,11 @@ type
     begin
         writeln('  +--------------------+');
         for i := Height-1 downto 0 do begin
-            fixedX := fixXCoordinates(i,g.turn);
+            fixedX := fixXCoordinates(i,game.turn);
             write(i,' | ');
             for j := 'a' to 'i' do begin
-                fixedY := fixYCoordinates(j,g.turn);
-                fig := g.table[fixedX,fixedY];
+                fixedY := fixYCoordinates(j,game.turn);
+                fig := game.table[fixedX,fixedY];
                 fixedKind := fig.kind;
                 if (fig.color = Black)  and (fig.kind <> None) then fixedKind := lowercase(fixedKind);
                 if (fixedKind = None) then fixedKind := ' ';
@@ -607,7 +607,7 @@ type
     end; 
     {Функция взятия генерала того же цвета, что и текущий ход.}
     
-    function GetGeneral(var g:Game_t; color:Color_t):Coordinate;
+    function GetGeneral(var game:Game_t; color:Color_t):Coordinate;
     var
         i,off:integer;
         j:char;
@@ -616,7 +616,7 @@ type
         off := ord(color)*7;
         for i := 0+off to 2+off do begin
             for j:= 'd' to 'f' do begin
-                if (g.table[i,j].kind = General) then begin
+                if (game.table[i,j].kind = General) then begin
                     c.x := i;
                     c.y := j;
                     GetGeneral := c;
@@ -624,29 +624,29 @@ type
                 end;
             end;
         end;
-        ASSERT(g,false,'Unreachable');
+        ASSERT(game,false,'Unreachable');
     end;
-    function GetGeneral(var g:Game_t):Coordinate;
+    function GetGeneral(var game:Game_t):Coordinate;
     begin
-        GetGeneral := GetGeneral(g,g.turn);
+        GetGeneral := GetGeneral(game,game.turn);
     end;
     {Корректность координаты}
-    function IsCorrectCoord(const c:Coordinate): boolean;
+    function IsCorrectCoord(c:Coordinate): boolean;
     begin
         IsCorrectCoord := (c.x in [0..9]) and (c.y in ['a'..'i']);
     end;
     {Свободность слота}
-    function IsFreeSlot(const c:Coordinate; var t:Table_t):boolean;
+    function IsFreeSlot(c:Coordinate; var table:Table_t):boolean;
     begin
-        IsFreeSlot := t[c.x,c.y].kind = None;
+        IsFreeSlot := table[c.x,c.y].kind = None;
     end;
     {проверка на занятость слота вражеской фигурой}
-    function IsEnemySlot(const color:Color_t; const c:Coordinate;var t:Table_t):boolean;
+    function IsEnemySlot(color:Color_t; c:Coordinate;var table:Table_t):boolean;
     begin
-        IsEnemySlot := (not IsFreeSlot(c,t)) and (t[c.x,c.y].color <> color);
+        IsEnemySlot := (not IsFreeSlot(c,table)) and (table[c.x,c.y].color <> color);
     end;
     {Следующие функции вида IsCorrect*Move  - функции проверки корректности хода в завимости от фигуры, предполагается, что координаты корректны}
-    function IsCorrectRockMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectRockMove(move:Move_t;var game:Game_t):boolean;
     var 
         i,dx,dy,nx,ex:integer;
         j,ny,ey:char;
@@ -680,7 +680,7 @@ type
                 for j := ny to ey do begin
                     c.x := i;
                     c.y := j;
-                    if not IsFreeSlot(c,g.table) then begin
+                    if not IsFreeSlot(c,game.table) then begin
                         IsCorrectRockMove := false;
                         exit;
                     end; 
@@ -691,7 +691,7 @@ type
             IsCorrectRockMove := false;
     end;
     
-    function IsCorrectHorseMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectHorseMove(move:Move_t;var game:Game_t):boolean;
     var
         dx,dy:integer;
         c:Coordinate;
@@ -705,13 +705,13 @@ type
         end;
         if abs(dx) > abs(dy) then begin
             inc(c.x, 1-2*integer(dx < 0));
-            if not IsFreeSlot(c,g.table) then begin
+            if not IsFreeSlot(c,game.table) then begin
                 IsCorrectHorseMove := false;
                 exit;
             end;
         end else begin
             inc(c.y, 1-2*integer(dy < 0));
-            if not IsFreeSlot(c,g.table) then begin
+            if not IsFreeSlot(c,game.table) then begin
                 IsCorrectHorseMove := false;
                 exit;
             end;
@@ -719,16 +719,16 @@ type
         IsCorrectHorseMove := true;
     end;
     
-    function IsCorrectElephantMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectElephantMove(move:Move_t;var game:Game_t):boolean;
     var
         dx,dy:integer;
     begin
         dx := abs(move.next.x - move.from.x);
         dy := abs(ord(move.next.y) - ord(move.from.y));
-        IsCorrectElephantMove := (((dx = dy) and (dx = 2) )) and (not ((g.turn = White) and (move.next.x in [5..9]) or (g.turn = Black) and (move.next.x in [0..4]))); 
+        IsCorrectElephantMove := (((dx = dy) and (dx = 2) )) and (not ((game.turn = White) and (move.next.x in [5..9]) or (game.turn = Black) and (move.next.x in [0..4]))); 
     end;
     
-    function IsCorrectAdvisorMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectAdvisorMove(move:Move_t;var game:Game_t):boolean;
     var
         dx,dy:integer;
     begin
@@ -738,12 +738,12 @@ type
 
     end;
     
-    function IsCorrectGeneralMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectGeneralMove(move:Move_t;var game:Game_t):boolean;
     var
         dx,dy:integer;
     begin
-        if (g.table[move.next.x,move.next.y].kind = General) and (g.table[move.next.x,move.next.y].color<>g.turn) then begin
-            IsCorrectGeneralMove := IsCorrectRockMove(move,g);
+        if (game.table[move.next.x,move.next.y].kind = General) and (game.table[move.next.x,move.next.y].color<>game.turn) then begin
+            IsCorrectGeneralMove := IsCorrectRockMove(move,game);
             exit;
         end;
         dx := abs(move.next.x - move.from.x);
@@ -751,15 +751,15 @@ type
         IsCorrectGeneralMove := (dx + dy = 1) and (move.next.x in [0,1,2,7,8,9]) and (move.next.y in ['d','e','f']);
     end;
     
-    function IsCorrectCanonMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectCanonMove(move:Move_t;var game:Game_t):boolean;
     var 
         dx,dy,i,ex,nx:integer;
         j,ey,ny:char;
         foundFigure:boolean;
         c:Coordinate;
     begin
-        if (IsFreeSlot(move.next,g.table)) then
-            IsCorrectCanonMove := IsCorrectRockMove(move,g)
+        if (IsFreeSlot(move.next,game.table)) then
+            IsCorrectCanonMove := IsCorrectRockMove(move,game)
         else begin
             dx := move.next.x - move.from.x;
             dy := ord(move.next.y) - ord(move.from.y);
@@ -793,7 +793,7 @@ type
                 for j := ny to ey do begin
                     c.x := i;
                     c.y := j;
-                    if not IsFreeSlot(c,g.table) then begin
+                    if not IsFreeSlot(c,game.table) then begin
                         if foundFigure then begin
                             IsCorrectCanonMove := false;
                             exit;
@@ -806,18 +806,18 @@ type
         end;
     end;
     
-    function IsCorrectPawnMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectPawnMove(move:Move_t;var game:Game_t):boolean;
     var 
         dx,dy:integer;
         isDyPossible:boolean;
     begin
-        dx := (1 - 2*(ord(g.turn)))*(move.next.x - move.from.x);
+        dx := (1 - 2*(ord(game.turn)))*(move.next.x - move.from.x);
         if (dx < 0) then begin
             IsCorrectPawnMove := false;
             exit;
         end;
         dy := abs(ord(move.next.y) - ord(move.from.y));
-        isDyPossible := (g.turn = White) and (move.from.x >=5) or (g.turn = Black) and (move.from.x <=4);
+        isDyPossible := (game.turn = White) and (move.from.x >=5) or (game.turn = Black) and (move.from.x <=4);
         if dy <> 0 then begin
             IsCorrectPawnMove := (dy = 1) and (isDyPossible) and (dx = 0);
             exit;
@@ -825,47 +825,47 @@ type
         IsCorrectPawnMove := dx = 1;
     end;
     {Общая проверка корректности хода для всех фигур.}
-    function IsCorrectMove(const move:Move_t;var g:Game_t):boolean;
+    function IsCorrectMove(move:Move_t;var game:Game_t):boolean;
     begin
-        if (not IsCorrectCoord(move.from)) or (not IsCorrectCoord(move.next)) or (g.table[move.from.x,move.from.y].kind <> move.kind) or IsEnemySlot(g.turn,move.from,g.table) or  
-            (not IsFreeSlot(move.next,g.table)) and (not IsEnemySlot(g.turn,move.next,g.table)) then begin
+        if (not IsCorrectCoord(move.from)) or (not IsCorrectCoord(move.next)) or (game.table[move.from.x,move.from.y].kind <> move.kind) or IsEnemySlot(game.turn,move.from,game.table) or  
+            (not IsFreeSlot(move.next,game.table)) and (not IsEnemySlot(game.turn,move.next,game.table)) then begin
             IsCorrectMove := false;
             exit;
         end;
         IsCorrectMove := false;
         case move.kind of 
-            Pawn: IsCorrectMove := IsCorrectPawnMove(move,g);
-            Elephant: IsCorrectMove := IsCorrectElephantMove(move,g);
-            Rock: IsCorrectMove := IsCorrectRockMove(move,g);
-            General: IsCorrectMove := IsCorrectGeneralMove(move,g);
-            Advisor: IsCorrectMove := IsCorrectAdvisorMove(move,g);
-            Horse: IsCorrectMove := IsCorrectHorseMove(move,g);
-            Canon: IsCorrectMove := IsCorrectCanonMove(move,g);
+            Pawn: IsCorrectMove := IsCorrectPawnMove(move,game);
+            Elephant: IsCorrectMove := IsCorrectElephantMove(move,game);
+            Rock: IsCorrectMove := IsCorrectRockMove(move,game);
+            General: IsCorrectMove := IsCorrectGeneralMove(move,game);
+            Advisor: IsCorrectMove := IsCorrectAdvisorMove(move,game);
+            Horse: IsCorrectMove := IsCorrectHorseMove(move,game);
+            Canon: IsCorrectMove := IsCorrectCanonMove(move,game);
             None : IsCorrectMove := false;
         end;
     end;
     {Проверка на шах.}
-    function IsInCheck(var g:Game_t):boolean;
+    function IsInCheck(var game:Game_t):boolean;
     var
         i:integer;
         c:Coordinate;
         list:FigureList;
         move:Move_t;
     begin
-        list := GetEnemyFigures(g);
-        c := GetGeneral(g);
-        g.turn := Color_t(1 - ord(g.turn));
+        list := GetEnemyFigures(game);
+        c := GetGeneral(game);
+        ChangeTurn(game);
         move.next := c;
         IsInCheck := false;
         for i := 1 to 16 do begin
             move.kind := list[i].kind;
             move.from := list[i].position;
-            if(IsCorrectMove(move,g)) then begin
+            if(IsCorrectMove(move,game)) then begin
                 IsInCheck := true;
                 break;
             end;
         end;
-        g.turn := Color_t(1 - ord(g.turn));
+        ChangeTurn(game);
     end;
     {Процедура добавление хода в список ходов.}
     procedure AddMove(var res:MovesList; var move:Move_t);
@@ -874,7 +874,7 @@ type
         res.moves[res.length] := move;
     end;
     {Следующие функции генерируют всевозможные хода для каждой фигуры}
-    procedure GenerateAllPawnAndGeneralMoves(var res:MovesList; var g:Game_t; fig:FigureInfo);
+    procedure GenerateAllPawnAndGeneralMoves(var res:MovesList; var game:Game_t; fig:FigureInfo);
     var
         move:Move_t;
     begin
@@ -882,21 +882,21 @@ type
         move.kind := fig.kind;
         move.next := move.from;
         inc(move.next.x);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         dec(move.next.x,2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.y);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         dec(move.next.y,2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
     end;    
 
-    procedure GenerateAllHorseMoves(var res:MovesList; var g:Game_t; fig:FigureInfo);
+    procedure GenerateAllHorseMoves(var res:MovesList; var game:Game_t; fig:FigureInfo);
     var
         move:Move_t;
     begin
@@ -905,46 +905,46 @@ type
         move.next := move.from;
         inc(move.next.x,1);
         inc(move.next.y,2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,1);
         inc(move.next.y,-2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-1);
         inc(move.next.y,2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-1);
         inc(move.next.y,-2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,2);
         inc(move.next.y,1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,2);
         inc(move.next.y,-1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-2);
         inc(move.next.y,1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-2);
         inc(move.next.y,-1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
     end;
 
-    procedure GenerateAllElephantMoves(var res:MovesList; var g:Game_t; fig:FigureInfo);
+    procedure GenerateAllElephantMoves(var res:MovesList; var game:Game_t; fig:FigureInfo);
     var
         move:Move_t;
     begin
@@ -953,25 +953,25 @@ type
         move.next := move.from;
         inc(move.next.x,2);
         inc(move.next.y,2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,2);
         inc(move.next.y,-2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-2);
         inc(move.next.y,2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-2);
         inc(move.next.y,-2);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
     end;    
-    procedure GenerateAllAdvisorMoves(var res:MovesList; var g:Game_t; fig:FigureInfo);
+    procedure GenerateAllAdvisorMoves(var res:MovesList; var game:Game_t; fig:FigureInfo);
     var
         move:Move_t;
     begin
@@ -980,26 +980,26 @@ type
         move.next := move.from;
         inc(move.next.x,1);
         inc(move.next.y,1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,1);
         inc(move.next.y,-1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-1);
         inc(move.next.y,1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
         move.next := move.from;
         inc(move.next.x,-1);
         inc(move.next.y,-1);
-        if(IsCorrectMove(move,g)) then 
+        if(IsCorrectMove(move,game)) then 
             AddMove(res,move);
     end;    
     
-    procedure GenerateAllRockAndCanonMoves(var res:MovesList; var g:Game_t; fig:FigureInfo);
+    procedure GenerateAllRockAndCanonMoves(var res:MovesList; var game:Game_t; fig:FigureInfo);
     var
         move:Move_t;
         i:integer;
@@ -1008,72 +1008,72 @@ type
         move.from := fig.position;
         move.kind := fig.kind;
         move.next := move.from;
-        for i := 1 to 10 do begin
+        for i := 0 to Height - 1 do begin
             for j := 'a' to 'j' do begin
                 move.next.x := i;
                 move.next.y := j;
-                if(IsCorrectMove(move,g)) then
+                if(IsCorrectMove(move,game)) then
                     AddMove(res,move);
             end;
         end;
     end;    
     {Общая процедура генерации ходов}
-    procedure GenerateMovesForFigure(var g:Game_t;var res:MovesList;fig:FigureInfo);
+    procedure GenerateMovesForFigure(var game:Game_t;var res:MovesList;fig:FigureInfo);
     begin
         case fig.kind of 
-            Pawn : GenerateAllPawnAndGeneralMoves( res, g, fig );
-            Elephant : GenerateAllElephantMoves( res, g, fig );
-            Rock : GenerateAllRockAndCanonMoves( res, g, fig );
-            General : GenerateAllPawnAndGeneralMoves( res, g, fig );
-            Advisor : GenerateAllAdvisorMoves( res, g, fig );
-            Horse : GenerateAllHorseMoves( res, g, fig );
-            Canon : GenerateAllRockAndCanonMoves( res, g, fig );
+            Pawn : GenerateAllPawnAndGeneralMoves( res, game, fig );
+            Elephant : GenerateAllElephantMoves( res, game, fig );
+            Rock : GenerateAllRockAndCanonMoves( res, game, fig );
+            General : GenerateAllPawnAndGeneralMoves( res, game, fig );
+            Advisor : GenerateAllAdvisorMoves( res, game, fig );
+            Horse : GenerateAllHorseMoves( res, game, fig );
+            Canon : GenerateAllRockAndCanonMoves( res, game, fig );
         end;
 
     end;    
     {Генерация всех ходов для всех фигур}
-    function GenerateAllPossibleMoves(var g:Game_t):MovesList;
+    function GenerateAllPossibleMoves(var game:Game_t):MovesList;
     var
         figures:FigureList;
         res:MovesList;
         i:integer;
     begin
-        g.turn := Color_t(1 - ord(g.turn));
-        figures := GetEnemyFigures(g);
-        g.turn := Color_t(1 - ord(g.turn));
+        ChangeTurn(game);
+        figures := GetEnemyFigures(game);
+        ChangeTurn(game);
         res.length := 0;
         
         for i := 1 to 16 do begin
-            GenerateMovesForFigure(g,res,figures[i]);
+            GenerateMovesForFigure(game,res,figures[i]);
         end;    
         
         GenerateAllPossibleMoves := res;
 
     end;
     {Проверка на сохранение шаха после хода}
-    function CheckPossible(move:Move_t; var g:Game_t):boolean;
+    function CheckPossible(move:Move_t; var game:Game_t):boolean;
     var 
         tmp1,tmp2:Figure;
     begin
-        tmp1 := g.table[move.from.x,move.from.y];
-        tmp2 := g.table[move.next.x,move.next.y];
-        MakeMove(g,move);
-        CheckPossible := IsInCheck(g);
+        tmp1 := game.table[move.from.x,move.from.y];
+        tmp2 := game.table[move.next.x,move.next.y];
+        MakeMove(game,move);
+        CheckPossible := IsInCheck(game);
       
-        g.table[move.from.x,move.from.y] := tmp1;
-        g.table[move.next.x,move.next.y] := tmp2;
+        game.table[move.from.x,move.from.y] := tmp1;
+        game.table[move.next.x,move.next.y] := tmp2;
     end;
     {Проверка на мат: рассматриваем всевозможные ходы и шах после них}
-    function IsInMate(var g:Game_t):boolean;
+    function IsInMate(var game:Game_t):boolean;
     var
         moves:MovesList;
         i:integer;
     begin
-        moves := GenerateAllPossibleMoves(g);
+        moves := GenerateAllPossibleMoves(game);
         IsInMate := true;
         
         for i := 1 to moves.length do begin
-            if not CheckPossible(moves.moves[i],g) then begin
+            if not CheckPossible(moves.moves[i],game) then begin
                 IsInMate := false;
                 break;
             end; 
@@ -1250,29 +1250,23 @@ type
         ChangeTurn(game);
     end;    
     {Считывание хода  и его исполнение в случае корректности}
-    function PlayMove(var g:Game_t; depth:integer):boolean;
+    function PlayMove(var game:Game_t; depth:integer):boolean;
     var
         m:Move_t;
     begin
         PlayMove := true;
         write('Input >');
-        m := g.OnMoveRead^(g);
-        
-        while (not IsCorrectMove(m,g)) or CheckPossible(m,g) do begin
+        m := game.OnMoveRead^(game);
+        while (not IsCorrectMove(m,game)) or CheckPossible(m,game) do begin
             write('Incorrect! >');
-            m := g.OnMoveRead^(g);
+            m := game.OnMoveRead^(game);
         end;
-        
-        if g.turn = Black then 
-            g.turn := White 
-        else 
-            g.turn := Black;
-        
+        ChangeTurn(game);
         {тк ход пешки вперед необратим и убийство фигуры - то все позиции не могут уже повториться}
-        if(g.table[m.next.x,m.next.y].kind <> None) or (m.kind = Pawn) and (m.from.x <> m.next.x) then begin
-            ResetHashes(g);
+        if(game.table[m.next.x,m.next.y].kind <> None) or (m.kind = Pawn) and (m.from.x <> m.next.x) then begin
+            ResetHashes(game);
         end;
-        MakeMove(g,m);
+        MakeMove(game,m);
     end;
     {Случайное расположение фигур, если сгенерировалась расстановка в матом - перегенерация.}
     function RandomGame(const _blackAmount,_whiteAmount:integer):Game_t;
