@@ -76,7 +76,7 @@ type
             Canon : FigureCost := 36;
             Rock : FigureCost := 72;
             None: FigureCost := 0;
-            General: FigureCost := 0;
+            General: FigureCost := 4;
             Pawn: begin
                 if (fig.position.x in [5..9]) and (game.turn = White) or (fig.position.x in [0..4]) and (game.turn = Black) then
                     FigureCost := 16
@@ -87,7 +87,6 @@ type
     end;
     function FigureCostMove(move:Move_t; var game:Game_t):integer;
     begin
-   //     writeln('/b/:',move.next.x,move.next.y);
         case game.table[move.next.x,move.next.y].kind of 
             Elephant, Advisor : FigureCostMove := 16;
             Horse : FigureCostMove := 32;
@@ -128,8 +127,8 @@ type
         end;
         RandomCoordinate := res;
     end;
-    {Функция рассчета Хэша от таблицы.} {$I-}
-    function HashTable(var g:Game_t):int64;
+    {Функция рассчета Хэша от таблицы. hash(table) = sum for all cells(i,j): [(kind number + i) << ((1+cell color) ^ (ord(j)*i))]} {$I-}
+    function HashTable(var game:Game_t):int64;
     var
         i,fix:integer;
         h:int64;
@@ -138,15 +137,17 @@ type
         h := 0; 
         for i := 0 to 9 do begin
             for j := 'a' to 'j' do begin
-                if g.table[i,j].kind <> None then fix := 1 + ord(g.table[i,j].color)
-                else fix := 0;
-                h := h + ((ord(g.table[i,j].kind )+i) shl (fix xor (ord(j) * i)));
+                if game.table[i,j].kind <> None then 
+                    fix := 1 + ord(game.table[i,j].color)
+                else 
+                    fix := 0;
+                h := h + ((ord(game.table[i,j].kind )+i) shl (fix xor (ord(j) * i)));
             end;
         end;
-        HashTable := h + ord(g.turn);
-    end;{$I+}
+        HashTable := h + ord(game.turn);
+    end;
     {Функция генерации хэш-узла для хэш-списка}
-    function CreateHashNode(var g:Game_t;hash:int64):PHashList;
+    function CreateHashNode(var game:Game_t;hash:int64):PHashList;
     var
         ptr:PHashList;
     begin
@@ -154,11 +155,11 @@ type
         ptr^.next := nil;
         ptr^.value := hash;
         ptr^.count := 1;
-        ptr^.table := g.table;
+        ptr^.table := game.table;
         CreateHashNode := ptr;
     end;
     {функция вставки/инкрементирования счетчика для хэш-списка от таблиц, возвращает число повторений текущей позиции}
-    function UpdateHash(var g:Game_t):integer;
+    function UpdateHash(var game:Game_t):integer;
     var
         iter:PHashList;
         hash:int64;
@@ -178,11 +179,11 @@ type
             CompareTable := true;
         end;
     begin
-        iter := g.hashes;
-        hash := HashTable(g);
+        iter := game.hashes;
+        hash := HashTable(game);
         while iter <> NIL do begin
             if(iter^.value = hash) then begin
-                if(CompareTable(g.table,iter^.table))then begin
+                if(CompareTable(game.table,iter^.table))then begin
                     inc(iter^.count);
                     UpdateHash := iter^.count;
                     exit;
@@ -190,37 +191,37 @@ type
             end;
             iter := iter^.next;
         end;
-        iter := CreateHashNode(g,hash);
-        if(g.hashes = NIL) then begin
-            g.hashes := iter;
-            g.tail := iter;
+        iter := CreateHashNode(game,hash);
+        if(game.hashes = NIL) then begin
+            game.hashes := iter;
+            game.tail := iter;
         end else begin
-            g.tail^.next := iter;
-            g.tail := iter;
+            game.tail^.next := iter;
+            game.tail := iter;
         end;
         UpdateHash := 1;
     end;
     {Очистка хэш-листа}
-    procedure ResetHashes(var g:Game_t);
+    procedure ResetHashes(var game:Game_t);
     var
         ptr,tmp:PHashList;
     begin
-        ptr := g.hashes;
+        ptr := game.hashes;
         while ptr <> nil do begin
             tmp := ptr;
             ptr := ptr^.next;
             dispose(tmp);
         end;
-        g.hashes := nil;
+        game.hashes := nil;
     end;
     {Добавление элемента в конец списка фигур}
-    procedure PushToList(var fList:FigureList; const f:Figure_t; const c:Coordinate; const x:integer);
+    procedure PushToList(var fList:FigureList; f:Figure_t; c:Coordinate; x:integer);
     begin
         fList[x].kind := f;
         fList[x].position := c;
     end;
     {Функция взятия всех фигур, что еще живы.}
-    function GetEnemyFigures(var g:Game_t):FigureList;
+    function GetEnemyFigures(var game:Game_t):FigureList;
     var
         count,i:integer;
         j:char;
@@ -230,11 +231,11 @@ type
         count := 0;
         for i := 0 to 9 do begin
             for j:= 'a' to 'i' do begin
-              //  writeln(count);
-                if (g.table[i,j].color <> g.turn) and (g.table[i,j].kind <> None) then begin
+                if (game.table[i,j].color <> game.turn) and (game.table[i,j].kind <> None) then begin
                     count := count +1;
-                    c.x := i; c.y := j;
-                    PushToList(list,g.table[i,j].kind,c,count);
+                    c.x := i; 
+                    c.y := j;
+                    PushToList(list,game.table[i,j].kind,c,count);
                 end;
             end;
         end;
@@ -265,7 +266,7 @@ type
         - восстановление из номера вертикали - y-индекс
         - нахождение x-индекса фигуры по вертикали
         - обработка x и y индексов клетки, куда делается ход в зависимости от фигуры}
-    function ReadAndProccessChineeseNotation(var game:Game_t):Move_t;
+    function ReadChineseNotation(var game:Game_t):Move_t;
     var 
         i,offset:integer;
         y,offsetChr,offsetTy:char;
@@ -283,7 +284,7 @@ type
         if(not (offsetTy in ['+','-','='])) then begin
             move.kind := None;
             readln;
-            ReadAndProccessChineeseNotation := move;
+            ReadChineseNotation := move;
             exit;
         end;
         readln(offsetChr);
@@ -297,7 +298,7 @@ type
                     if searchTy = '@' then begin
                         writeln('Two figures at 1 line. Incorrect.');
                         move.kind := None;
-                        ReadAndProccessChineeseNotation := move;
+                        ReadChineseNotation := move;
                         exit;
                     end;
                     move.from.x := i;
@@ -313,7 +314,7 @@ type
                     if searchTy = '@' then begin
                         writeln('Two figures at 1 line. Incorrect.');
                         move.kind := None;
-                        ReadAndProccessChineeseNotation := move;
+                        ReadChineseNotation := move;
                         exit;
                     end;
                     move.from.x := i;
@@ -326,7 +327,7 @@ type
         end;
         if(move.from.x = -1) then begin
             move.kind := None;
-            ReadAndProccessChineeseNotation := move;
+            ReadChineseNotation := move;
             exit;
         end;
         {Фикс оффсета, по правде говоря, не очень удобно это, но мне лень это менять}
@@ -338,7 +339,7 @@ type
             offset := Width - 1 + offset;
         if not (move.kind in [Rock,Canon,Pawn,Horse,Elephant,General,Advisor]) then begin
             move.kind := None;
-            ReadAndProccessChineeseNotation := move;
+            ReadChineseNotation := move;
             exit;
         end;
         {обработка в завимости от типа фигуры}
@@ -367,7 +368,7 @@ type
                         inc(move.next.x,2);
                 end else begin
                     move.kind := None;
-                    ReadAndProccessChineeseNotation := move;
+                    ReadChineseNotation := move;
                     exit;
                 end;
                 if(game.turn = Black) then 
@@ -391,7 +392,7 @@ type
                         inc(move.next.x);
                 end else begin
                     move.kind := None;
-                    ReadAndProccessChineeseNotation := move;
+                    ReadChineseNotation := move;
                     exit;
                 end;
                 if(game.turn = Black) then 
@@ -412,15 +413,13 @@ type
             end;
             Horse: begin
                 move.next := move.from;
-            //    write(offset,' ');
                 if(game.turn = Black) then 
                     offset := Width  + offset
                 else 
                     dec(offset);
-              //  writeln(offset);
                 if(offsetTy = '=') then begin
                     move.kind := None;
-                    ReadAndProccessChineeseNotation := move;
+                    ReadChineseNotation := move;
                     exit;
                 end;
                 move.next.y := chr(ord('a') + offset);
@@ -453,14 +452,14 @@ type
                         end;
                     end else begin
                         move.kind := None;
-                        ReadAndProccessChineeseNotation := move;
+                        ReadChineseNotation := move;
                         exit;
                     end;
                 end;
             end;
         end;
         {Уииии, наконец-то этот ужас закончился!}
-        ReadAndProccessChineeseNotation := move;
+        ReadChineseNotation := move;
     end;
 
     {считывание следующего хода в европейской нотации}
@@ -489,88 +488,88 @@ type
     var
         i:integer;
         j:char;
-        t:Game_t;
+        game:Game_t;
     begin
-        new(t.OnMoveRead);
-        t.hashes := nil;
-        t.tail := nil;
+        new(game.OnMoveRead);
+        game.hashes := nil;
+        game.tail := nil;
         for i := 0 to Height - 1 do begin
             for j := 'a' to 'i' do begin 
-                t.table[i,j].kind := None;
-                t.table[i,j].color := White;
+                game.table[i,j].kind := None;
+                game.table[i,j].color := White;
             end;
         end;
-        t.turn := White;
-        t.table[3,'a'].kind := Pawn;
-        t.table[3,'a'].color := White;
-        t.table[3,'c'] := t.table[3,'a'];
-        t.table[3,'e'] := t.table[3,'c'];
-        t.table[0,'a'].kind := Rock;
-        t.table[0,'b'].kind := Horse;
-        t.table[0,'c'].kind := Elephant;
-        t.table[0,'d'].kind := Advisor;
-        t.table[0,'e'].kind := General;
-        t.table[2,'b'].kind := Canon;
-        t.table[0,'a'].kind := Rock;
+        game.turn := White;
+        game.table[3,'a'].kind := Pawn;
+        game.table[3,'a'].color := White;
+        game.table[3,'c'] := game.table[3,'a'];
+        game.table[3,'e'] := game.table[3,'c'];
+        game.table[0,'a'].kind := Rock;
+        game.table[0,'b'].kind := Horse;
+        game.table[0,'c'].kind := Elephant;
+        game.table[0,'d'].kind := Advisor;
+        game.table[0,'e'].kind := General;
+        game.table[2,'b'].kind := Canon;
+        game.table[0,'a'].kind := Rock;
         for j := 'f' to 'i' do begin
             for i := 0 to 3 do begin
-                t.table[i,j] := t.table[i,chr(ord('a') + 8 + ord('a') - ord(j))];
+                game.table[i,j] := game.table[i,chr(ord('a') + 8 + ord('a') - ord(j))];
             end; 
         end;
         for j := 'a' to 'i' do begin
             for i := 6 to 9 do begin
-                t.table[i,j].kind := t.table[9 - i,j].kind;
-                t.table[i,j].color := Black;
+                game.table[i,j].kind := game.table[9 - i,j].kind;
+                game.table[i,j].color := Black;
             end; 
         end;
-        DefaultGame := t;
+        DefaultGame := game;
     end;
     {DEBUG расположение фигур на поле}
     function DebugGame:Game_t;
     var
         i:integer;
         j:char;
-        t:Game_t;
+        game:Game_t;
     begin
-        new(t.OnMoveRead);
-        t.hashes := nil;
-        t.tail := nil;
+        new(game.OnMoveRead);
+        game.hashes := nil;
+        game.tail := nil;
         for i := 0 to Height - 1 do begin
             for j := 'a' to 'i' do begin 
-                t.table[i,j].kind := None;
-                t.table[i,j].color := White;
+                game.table[i,j].kind := None;
+                game.table[i,j].color := White;
             end;
         end;
-        t.turn := White;
-        t.table[0,'e'].kind := General;
-        t.table[9,'e'].kind := General;
-        t.table[9,'e'].color := Black;
-        t.table[8,'e'].color := Black;
-        t.table[9,'d'].color := Black;
-        t.table[8,'e'].kind := Advisor;
-        t.table[9,'d'].kind := Advisor;
-        t.table[0,'d'].kind := Advisor;
-        t.table[0,'f'].kind := Advisor;
-        t.table[0,'c'].kind := Elephant;
-        t.table[0,'g'].kind := Elephant;
-        t.table[2,'d'].kind := Rock;
-        t.table[2,'d'].color := Black;
-        t.table[2,'b'].kind := Pawn;
-        t.table[2,'b'].color := Black;
-        t.table[3,'f'].kind := Canon;
-        t.table[3,'f'].color := Black;
-        t.table[4,'e'].kind := Canon;
-        t.table[4,'e'].color := Black;
-        t.table[5,'g'].kind := Rock;
-        t.table[6,'h'].kind := Horse;
-        t.table[6,'e'].kind := Canon;
-        t.table[8,'c'].kind := Canon;
-        t.table[8,'g'].kind := Rock;
-        t.table[7,'e'].color := Black;
-        t.table[9,'h'].kind := Pawn;
-        t.table[7,'e'].kind := Elephant;
-        t.table[9,'i'].kind := Horse;
-        DebugGame := t;
+        game.turn := White;
+        game.table[0,'e'].kind := General;
+        game.table[9,'e'].kind := General;
+        game.table[9,'e'].color := Black;
+        game.table[8,'e'].color := Black;
+        game.table[9,'d'].color := Black;
+        game.table[8,'e'].kind := Advisor;
+        game.table[9,'d'].kind := Advisor;
+        game.table[0,'d'].kind := Advisor;
+        game.table[0,'f'].kind := Advisor;
+        game.table[0,'c'].kind := Elephant;
+        game.table[0,'g'].kind := Elephant;
+        game.table[2,'d'].kind := Rock;
+        game.table[2,'d'].color := Black;
+        game.table[2,'b'].kind := Pawn;
+        game.table[2,'b'].color := Black;
+        game.table[3,'f'].kind := Canon;
+        game.table[3,'f'].color := Black;
+        game.table[4,'e'].kind := Canon;
+        game.table[4,'e'].color := Black;
+        game.table[5,'g'].kind := Rock;
+        game.table[6,'h'].kind := Horse;
+        game.table[6,'e'].kind := Canon;
+        game.table[8,'c'].kind := Canon;
+        game.table[8,'g'].kind := Rock;
+        game.table[7,'e'].color := Black;
+        game.table[9,'h'].kind := Pawn;
+        game.table[7,'e'].kind := Elephant;
+        game.table[9,'i'].kind := Horse;
+        DebugGame := game;
     end;
     {Процедура печати таблицы на экран с учетом различной разметки для каждого игрока}
     procedure PrintTable(var g:Game_t);
@@ -863,7 +862,6 @@ type
             move.from := list[i].position;
             if(IsCorrectMove(move,g)) then begin
                 IsInCheck := true;
-           //     writeln('Check from:', move.kind, ' ', move.from.x, move.from.y);
                 break;
             end;
         end;
@@ -1062,8 +1060,6 @@ type
         MakeMove(g,move);
         CheckPossible := IsInCheck(g);
       
-      //  writeln('DEBUG: CheckPossible');
-     //   PrintTable(g);
         g.table[move.from.x,move.from.y] := tmp1;
         g.table[move.next.x,move.next.y] := tmp2;
     end;
@@ -1075,7 +1071,6 @@ type
     begin
         moves := GenerateAllPossibleMoves(g);
         IsInMate := true;
-   //     writeln('DEBUG: IsInMate');
         
         for i := 1 to moves.length do begin
             if not CheckPossible(moves.moves[i],g) then begin
@@ -1091,7 +1086,7 @@ type
         res:longint = 0;
         move:Move_t;
         fig:FigureInfo;
-      {  function DegreeOfFreedom(coord:Coordinate):longint;
+        function DegreeOfFreedom(coord:Coordinate):longint;
         var res:longint = 0;
         begin
             if(coord.x <> 9) then begin
@@ -1115,7 +1110,7 @@ type
             end else
                 inc(res);
             DegreeOfFreedom := res;
-        end;}
+        end;
     begin
         move.next := GetGeneral(game,Color_t(1-ord(game.turn)));
         move.kind := General;
@@ -1124,11 +1119,11 @@ type
             fig.kind := game.table[i,j].kind;
             fig.position.x := i;
             fig.position.y := j;
-                res := res + (integer(game.turn = game.table[i,j].color))*FigureCost(fig,game){ + DegreeOfFreedom(fig.position)};
+                res := res + (integer(game.turn = game.table[i,j].color))*FigureCost(fig,game) + DegreeOfFreedom(fig.position);
             end;
             move.from := fig.position;
             if(IsCorrectMove(move,game)) then
-                inc(res,FigureCost(fig,game) shr 1);
+                inc(res,FigureCost(fig,game) - 1);
         end;
         CalcTableValueForPlayer := res;
     end;
@@ -1158,13 +1153,11 @@ type
         // repeat
             i:=low; j:=high; // Взятие среднего опорного элемента
           
-            m := FigureCostMove(ar[(i+j) div 2],game);{
-            if(MakesCheck(ar[(i+j) div 2])) then
-                m := 10;}
+            m := FigureCostMove(ar[(i+j) div 2],game);
             repeat
-                while (FigureCostMove(ar[i],game)>m) {or (MakesCheck(ar[i])) and (10 > m)} do 
+                while (FigureCostMove(ar[i],game)>m) do 
                     Inc(i); 
-                while (FigureCostMove(ar[j],game)<m) {or (not MakesCheck(ar[j])) and (10 < m)} do 
+                while (FigureCostMove(ar[j],game)<m) do 
                     Dec(j); 
                 if i<=j then begin
                     wsp:=ar[i]; 
@@ -1174,15 +1167,8 @@ type
                     Dec(j);
                 end;
             until i>j;
-        // if (j - low) < (high - i) then begin 
             if low<j then sort(ar, low, j);
-        // low := i;
-        //   end 
-        // else begin
             if i<high then sort(ar, i, high);
-        // high := j;
-        // end; 
-        //until low = high;
         end;
     begin
       sort(ar.moves,1,ar.length);
@@ -1196,7 +1182,6 @@ type
         val:longint;
         flag:boolean = false;
     begin
-       // writeln(ply,' ', depth,' ', alpha, ' ', beta);
         if(depth = 0) then begin
             AlphaBetaPuring := CalcTableValueForPlayer(game) - CalcTableValueForOppositePlayer(game);
             exit;
@@ -1206,17 +1191,12 @@ type
         for i := 1 to moves.length do begin
             tmp1 := game.table[moves.moves[i].from.x,moves.moves[i].from.y];
             tmp2 := game.table[moves.moves[i].next.x,moves.moves[i].next.y];
-            //if(tmp2.kind = General) then begin
-            //    AlphaBetaPuring := -MateValue;
-            //    exit;
-            //end;
            if( not CheckPossible(moves.moves[i],game)) then begin
                 MakeMove(game,moves.moves[i]);
                 ChangeTurn(game);
                 val := -AlphaBetaPuring(game, depth -1,-beta,-alpha,ply+1);
                 if(val > alpha) then begin
                     if (val >= beta) then begin
-              //          writeln(alpha, ' ', beta, ' ', depth, ' ', ord(game.turn), ' ',val);
                         AlphaBetaPuring := beta;
                         flag := true;
                     end;
@@ -1305,8 +1285,11 @@ type
         Counter: array ['A'..'Z',Color_t] of Integer;
         Limits: array ['A'..'Z'] of integer;
         Figures: array [1..7] of char = ('G','A','R','S','C','H','E');
-        procedure Generate(color:Color_t);
+        function Generate(color:Color_t):boolean;
+        var
+            tries:integer = 0;
         begin
+            Generate := true;
             repeat 
                 n := random(7) + 1;
                 j := Figures[n];
@@ -1315,7 +1298,12 @@ type
                 if j = 'E' then begin
                     coord := RandomCoordinate(game,0+ord(color)*5,4+ord(color)*5,'a','i')
                 end else if j = 'A' then begin
-                    coord := RandomCoordinate(game,0+ord(color)*7,2+ord(color)*7,'d','f')
+                    if(tries > 20) then begin
+                        Generate := false;
+                        exit;
+                    end;
+                    coord := RandomCoordinate(game,0+ord(color)*7,2+ord(color)*7,'d','f');
+                    inc(tries);
                 end else begin
                     coord := RandomCoordinate(game,0,9,'a','i');
                 end;
@@ -1361,11 +1349,19 @@ type
         dec(whiteAmount);
         while( blackAmount + whiteAmount > 0) do begin
             if(blackAmount > 0) then begin
-                Generate(Black);
+                if not Generate(Black) then begin
+                    RandomGame := RandomGame(_blackAmount,_whiteAmount);
+                    dispose(game.OnMoveRead);
+                    exit;
+                end;
                 dec(blackAmount);
             end;
             if(whiteAmount > 0) then begin
-                Generate(White);
+                if not Generate(White) then begin
+                    RandomGame := RandomGame(_blackAmount,_whiteAmount);
+                    dispose(game.OnMoveRead);
+                    exit;
+                end;
                 dec(whiteAmount);
             end;
         end;
@@ -1483,7 +1479,7 @@ type
         end else
             game := DefaultGame;
         if(chinese) then
-            game.OnMoveRead^ := @ReadAndProccessChineeseNotation{Люблю костыли}
+            game.OnMoveRead^ := @ReadChineseNotation{Люблю костыли}
         else
             game.OnMoveRead^ := @ReadNext;
 
@@ -1510,6 +1506,287 @@ type
     end;
 begin
     randomize;
+    case random(6) of
+            0: begin
+            writeln('_______________________________________________▐█▄▄');
+            writeln('__________________________________▄____________█▓▓█▄');
+            writeln('________________________________▄█_____________█▓▓▓▓█▄');
+            writeln('______________________________▄▓▓█_____________█▓▓▓▓▓▓█▄');
+            writeln('____________________________█▓▓▓▓█____________█▓▓▓▓▓▓▓▓█▄');
+            writeln('__________________________▄█▓▓▓▓▓█▄_________▄█▓▓▓▓▓▓▓▓▓▓█▄');
+            writeln('________________________▄█▓▓▓▓▓▓▓▓██▄▄▄▄██▓▓▓▓▓▓▓▓▓▓▓▓▓█');
+            writeln('______________________▄█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░▓▓▓▓▓▓▓█');
+            writeln('_____________________█▓▓▓▓▓▓▓▓▓▓▓▓░░░░______________░░░░▓▓█');
+            writeln('___________________▄█▓▓▓▓▓▓▓▓▓▓░░__________________________░█');
+            writeln('__________________█▓▓▓▓▓▓▓▓▓▓░░_____░░░░░░░░_______________░░░');
+            writeln('_______________▄█▓▓▓▓▓▓▓▓▓▓░░░░░░_____________░░░░_____░░░___░░░');
+            writeln('__________▄▄████▓▓▓▓▓▓▓▓░░_________________________░░_______░░░░');
+            writeln('_______▄█▓▓▓▓█▓▓▓▓▓▓▓▓░__░░░░░░░░░░░░░░__________░░_______░');
+            writeln('_____▄█▓▓▓▓██▓▓▓▓▓▓▓░░░░___________________░░░_______░░_______░');
+            writeln('____█▓▓▓▓▓█▓▓▓▓▓▓▓▓░___________________________░░________░_______░____________░░░');
+            writeln('___█▓▓▓▓▓█▓▓▓▓▓▓▓▓░______________________________░░_______░░_______░░░░░░░░__░');
+            writeln('__█▓▓▓▓▓▓▓▓▓▓▓▓▓▓░______________________░__________░░░______░░_______________░░');
+            writeln('_█▓▓▓▓▓▓▒▒▒▒▒▒▓▓▓░______░░░░░__________░____________░░░______░░░__________░');
+            writeln('█▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▓▓░░░▒▒▒▒▒▒░░░░░____░░░__░░________░░________░░░░░░░');
+            writeln('█▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░_░▒░░_░░░░______░░░_________░░');
+            writeln('█▓▓▓▓▓█▓▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░▒▒▒░░░▒░░░░░░░░░░░░░░░░');
+            writeln('█▓▓▓▓▓█▓▓▒▒▒▓▒▒▒▒▒▒▒▒▒▒█▒▒▒▒▒▄▄▅▅▅▅▅▄▄▒▒▒▒▒▒▒▒▒▒▒▒█__░░░▓');
+            writeln('_█▓▓▓▓█▓▓▓▒▒▒▓▓▒▒▒▒▒▒▒▒▒█▒▒█▀__▓▓▓▄███▄▒▒▒▒▒▒▒▒▒▒▌_▐███▓');
+            writeln('__█▓▓▓█▓▓▓▓▒▒▒▒▓▓▒▒▒▒▒▄▒▒▀█____▓▓____██████▒▒▒▒▒▒▒▐▓█████▓');
+            writeln('___█▓▓█▓▓▓▓▓▒▒▒▒▒▓▓▓▒▒▒▀▄▄█_____▓_____▐██████▒▒▒▒▒▒▐▓█▄███▓');
+            writeln('____███▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▄▒▒█_____▓_____███████▓▌▒▒▒▒▒▐▓▓███▓');
+            writeln('______▀█▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▀▀▀_______▓___█▌_█████▓▌▒▒▒▒▒▒▌_▓▓▓▓');
+            writeln('_______█▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒_______▓▓▓▓██████▓█▒▒▒▒▒▒▒▌___▓');
+            writeln('_______█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒_______▓▓▓▓▓███▓▓▐▒▒▒▒▒▒▒▒▓▓▓▓▓▓');
+            writeln('________█▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒_________▓▓▓▓▓▓___▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓');
+            writeln('________█▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒_▒▒▒▒▒________________▒▒▒▒▒▒▓▒▒▒▓▓▒▒▒▓');
+            writeln('_________█▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒_▒__▒▒▒▒▒▒____________▒▒▒▒▒▒▒▓▓▒▒▒▒▒▒▓');
+            writeln('__________█▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒_____▒▒▒▒▒▒▒▒▒▓█▓▓▓▓▓▓▓');
+            writeln('___________█▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒██__░');
+            writeln('____________█▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒█_░░');
+            writeln('_____________██▓▓▓▓▓▓▓▓▓█▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▌░░');
+            writeln('_______________██▓▓▓▓▓▓██__▓▒▒▒▒▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓__░');
+            writeln('_________________██▓▓▓▓█____▓▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓____░__░');
+            writeln('___________________████______▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒░_______________░___░');
+            writeln('_____________________▀________▓▒▒▒▒▒▒▒▒▒▒▒▒▒░________________░____░');
+            writeln('_______________________________▓▒▒▒▒▒▒▒▒▒▒▒▒░________________░_____░');
+            writeln('________________________________▓▒▒▒▒▒▒▒▒▒▒▒▒░_____________░░______░');
+            writeln('________________________________▓▒▒▒▒▒░░░░░░░░░__________░________░_░');
+            writeln('________________________________▓▒▒░░░___________░░░▓▓▓░░________░__░');
+            writeln('_________________________________▓░░__________________░░▓▓░░░░░░░___░');
+            writeln('_________________________________░░_░░__________________░_____________░');
+            writeln('_________________________________░░░░____________________░░░_______░');
+            writeln('_________________________________░__░____________________░░__░░░░░');
+            writeln('____________________________________░__________░________░░');
+            writeln('_____________________________________░____░____░░░░░░░_░__░░░');
+            writeln('______________________________________░___░░___░░_______░░░░');
+            writeln('________________________________________░_░_░____░░░_____░░');
+            writeln('__________________________________________░___░░░░░░░░░░');
+        end;
+        1: begin
+            writeln('__________________________________________▒▒▒');
+            writeln('_____________________________________▄██▒░░░▒█████████▄▄');
+            writeln('_________________________________▄███▓▓▒░░░▒▓▓▓▓█▓▓▓▓▓████▄');
+            writeln('_____________________________▄██▓▓▓▓▓▒░▒░░▒▓▓██▓▓▓▓██▓▓▓▓▓███▄▄');
+            writeln('__________________________███▓█▓▓▓▓▓▒░░▒░░▒█▓▓▓▓██▓▓▓▓▓██▓▓▓▓▓██▄');
+            writeln('_________________________▐█▓▓█▓▓▓▓▓▒░░░░▒▒▒▓▓▓██▓▓████████████████▄');
+            writeln('____________________▄█▄_█▓▓█▓▓▓▓▓▓▒▒░░░░░▒▓██▓▓███▓█▓▓▓▓█▓▓▓▓▓▓▓▓█▄');
+            writeln('_________________▄██████▓▓█▓▓▓▓▓▓▒░▒░░░░░▒▓▓██▓▓▓█▓▓▓▓█▓▓▓▓▓▓▓▓▓█▀');
+            writeln('_______________▄█▓▓████▓▓█▓▓▓▓▓▓▒░░▒▒░░░░▒▓█▓▓▓▓▓█▓▓▓█▓▓▓▓▓▓▓▓█▀');
+            writeln('______________▄█▓▓▓████▓█▓▓▓▓▓▓▒▒░░░░▒▒▒▒▒█▓▓▓▓▓█▓▓▓█▓▓▓▓▓▓▓█▀');
+            writeln('_____________██▓▓▓▓███▓█▓▓▓▓▓▓▓▒░▒░░░░░░▒▒▓▓▓▓▓▓█▓▓█▓▓▓▓▓▓▓█');
+            writeln('___________██▓▓▓▓▓▓███▓█▓▓▓▓▓▓▒▒░░▒░░░░▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓▓███_______▄▄▄▄');
+            writeln('___________█▓▓▓▓▓▓▓███▓█▓▓▓▓▓▓▒▒░░░░▒▒▒▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓██▓▓█████▓▓▓▓█');
+            writeln('__________██▓▓▓▓▓▓▓████▓▓▓▓▓▓▒▒░░░░░░░░▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓█▓▓▓▓██▓▓█▓▓▓▓█');
+            writeln('_________█▓▓█▓▓▓▓▓▓▓███▓▓▒▒▒▒░░░░░░░░░░░▒▒▒▒▒▓▓▓▓█▓█▓▓▓██▓▓▓▓████▓▓▓▓▓█');
+            writeln('________██▓▓▓█▓▓▓▓▓▓██▒▒▒▒░░░░░░░░░░░░░░░░░░▒▒▒▒▓▓█▓█▓▓██████████▓▓▓▓██');
+            writeln('________█▓█▓▓▓█▓▓▓▓▓▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▓█▓█▓██▓▓▓▓▓▓▓▓▓▓██');
+            writeln('_______█▓▓▓██▓▓██▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▓█▓█▓█▓▓▓▓▓▓▓▓██');
+            writeln('_______█▓▓▓▓▓███▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒██▓█▓██▓▓████');
+            writeln('__▒▒▒▒▒▓▓▓▓▓▓▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▀▀▀▀▀▀▀▀');
+            writeln('_▒░░░░░░▒▒▒▓▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒');
+            writeln('_▒░░░░░░░░░▒▒▒░░░░░░░░░░░░░░░░░▄░░░▄░░░░░░░░░░░░░░░░░▒');
+            writeln('__▒░░░░░░░░░░▒▒░░░░░░░░░░░░░▀▄░░▀▄▄▀▄▄▄▄▄░░░░░░░░░░░░░▒▒▒▒▒▒▒');
+            writeln('__▒░░░░░░░░░░░░░░░░░░░░░░▀▄▄░░██████████████▄░░░░░░░░░░░░░░░░▒');
+            writeln('__▒▒░░░░░░░░░░░░░░░░░░▄▄░░░▄████▓▓▓▓▓▓▓▓▓____▀█▄░░░░░░░░░░▅▅░░░▒');
+            writeln('___▒▒░▒▒░░░░░░░░░░░░░░░░▀███▓___▀██████▓▓▓▓▓_____▀▅░░░░░░░░░░░░▒▒');
+            writeln('____▒░░░▒▒▒░░░░░░░░░▀▀▀▀▀░░▓▓_____▀███████▓▓▓▓_____▀▅░░░░░░░░░░░▒');
+            writeln('_____▒▒░░░░▒▒▒▒░░░░░░░░░░░░░▓______███▀▀███▓▓▓▓______▀░░░░▅▅▅▅▅▅▀▀▒');
+            writeln('______█▒▒░░░░░░░▒▒▒░░░░░░░░░░░_____███▄_▐███▓▓▓▓____░░░░░░░░░░░▒');
+            writeln('______█▓▓▒▒░░░░░░░░░░░░░░░░░░░░░▀█████████▓▓▓▓__░░░░░░░░░░░░▒');
+            writeln('______█▓▓▓▓▒▒░░░░░░░░░░░░░░░░░░░░░▀▀▀████▓▓▓▓_░░░░░░░░░░░░▒▒');
+            writeln('_______█▓▓▓█▓▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒');
+            writeln('_______█▓▓▓█▓▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒');
+            writeln('_______██▓▓▓█▓█▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒');
+            writeln('_______█▓█▓▓█▓▓█▓▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒');
+            writeln('________█▓██▓█▓▓█▓▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒');
+            writeln('________█▓▓▓███▓█▓▓▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒');
+            writeln('_________█▓▓▓▓▓▓███████░░░░░░░░░░░░░░░░░░░░░▒▒▒');
+            writeln('_________██████▓▓▓▓▓▓▓▓▓██████░░░░░░▒▒▒▒▒▒▒');
+            writeln('__________█▓▓▓▓▓████████▓▓▓▓▓▓▓███░░░░▒');
+            writeln('___________█▓▓▓▓▓▓▓▓▓███▓████▓▓▓▓▓███░░▒');
+            writeln('____________█▓▓▓▓▓▓██▓▓▓▓████████▓▓▓▓███▒');
+            writeln('_____________█▓▓▓▓▓█▓▓▓▓█████████████▓▓▓█');
+            writeln('______________█▓▓▓▓██▓▓▓████████▓██▓▓██▓▓█');
+            writeln('_______________█▓▓▓█▓██▓▓█████▓▓▓▓██▓▓▓████');
+            writeln('________________█▓▓█▓▓▓███▓▓▓▓█████▓▓▓▓▓▓▓█');
+            writeln('_________________▀█████▓▓▓███▓▓▓█▓▓▓▓▓▓▓▓█▀');
+            writeln('_________________▄█▓▓█▓▓██▓▓▓████████▓▓▓█▀');
+            writeln('_______________▄██▓▓▓█▓▓▓▓███▓▓▓▓▓▓▓▓██▀');
+            writeln('________________█▓█▓▓▓▓█▓▓▓▓▓▓███████▀');
+            writeln('________________█▓▓██▓▓▓██▓▓▓▓▓▓▓▓█▀');
+            writeln('_________________█▓▓▓▓██▓▓██▓▓▓▓▓█▀');
+            writeln('__________________█▓▓▓▓▓██▓▓█████');
+            writeln('___________________█▓▓▓▓▓▓▓████▀');
+            writeln('____________________▀█▓▓▓▓▓▓▓█▀');
+            writeln('______________________▀█▓▓▓▓▓█');
+            writeln('________________________▀▀███');
+            writeln('____________________________▀');
+        end;
+        2:begin
+            writeln('____________________________________▄▄████████▄▄');
+            writeln('______________________________▄█▓▓▓▓▓▓▓▓▓▓▓▓█▄');
+            writeln('_____________________________█▓▓███▓▓▓▓▓▓▓▓▓█▓█____________▄▄▄▄▄');
+            writeln('____________________________▐███▓▓▓██▓▓▓▓▓▓▓█▓▓█_______▄██▓▓▓▓▓█▄');
+            writeln('_____________________▄▄▄____█▓▓▓▓▓▓▓█▓▓▓▓▓▓▓█▓▓█___▄█▓▓▓▓▓▓▓▓▓▓▓█▄');
+            writeln('___________________█▓▓▓▓██▄█▓▓▓▓▓▓▓█▓▓▓▓▓▓█▓▓▓█_▄█▓░░░▓▓▓▓▓▓▓▓▓▓█▄');
+            writeln('______▄▄███████████▓▓▓▓▓██▓▓▓▓▓▓▓█▓▓▓▓▓█▓▓▓▓██▓░░░░░░▓▓▓▓▓▓▓▓▓█▄');
+            writeln('___▄██▓▓▓▓▓▓▓▓▓█▓▓███▓▓▓▓▓▓▓▓▓▓█▓▓▓▓▓█▓▓▓▓▓▓▓░░░░░░░░▓▓▓▓▓▓▓▓▓█');
+            writeln('__██▓▓▓▓▓▓▓▓▓▓▓▓█▓▓▓█▓▓▓▓▓▓▓▓▓█▓▓▓▓▓▓▓██▓▓▓▓░░░░░░░░░▓▓▓▓▓▓▓▓█▓█');
+            writeln('_██▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓█▓▓▓▓▓▓▓▓▓▓███▓▓▓▓▓█▓▓▓░░░░░░░░░░▓▓▓▓▓▓▓█▓▓█');
+            writeln('██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓▓▓█▓▓▓░░░░░░░▓░░░▓▓▓▓▓█▓▓▓▓█');
+            writeln('██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓███████░░░░░░░▓░░░▓▓▓██▓▓▓▓▓█▌');
+            writeln('██▓▓▓▓▓▓▓▓▓▓▓▓████▀▀▀▀██▓▓▓▓▓▓▓▓███░░░░░░░░░░░░░░▓░░░▓▓▓▓█▓▓▓▓▓▓█');
+            writeln('▐█▓▓▓▓▓▓▓▓▓▓██__________▓██▓▓▓▓▓▓█░░░░░░░░░░░░░░░░░▓░░░▓▓▓▓█▓▓▓▓▓▓█');
+            writeln('_▐█▓▓▓▓▓▓▓▓██__________▓▓░░░█▓▓▓█░░░░░░░░░░░░░░░░░░▓████████▓▓▓▓▓▓█');
+            writeln('___█▓▓▓▓▓▓▓█__________▓▓░░░░░░███░░░░░▄▄▄▄░░░░▐░░░███▓▓▓▓▓▓▓▓▓████▓█');
+            writeln('____█▓▓▓▓▓▓█_________▓▓░░░░░░░░█░░░░▄▀_____▀█▄░▄▌░█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██▄');
+            writeln('___█_█▓▓▓▓▓█________▓▓░░░░░░░░░░░░▄▀__________▀█░░█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██▄');
+            writeln('__█▓█_█▓▓▓▓█_______▓▓░░░░░░░░░░░█▓▓▓▓▓▓_______█▄█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓█');
+            writeln('__▐█▓███▓▓▓█______▓▓░░░░░░░░░░░█▓▓██▌___▓_____█░█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓█');
+            writeln('___█▓▓▓▓▓▓▓▓█_____▓▓░░░░░░░░░░█▓████▌____▓____▐▄▄█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓█');
+            writeln('____█▓▓▓▓▓▓▓█_____▓▓░░░░░█░░░░█▓█████▄___▓_____░░░█▓▓▓███▓▓▓▓▓▓▓▓▓▓█▓▓█');
+            writeln('______██▓▓▓▓█_____▐▄▓░░░░░█░░░▐▓█████▀▀█▓▓▓____░██████▓▓▓█▓▓████▓▓█▓▓▓█');
+            writeln('_________▀▀▀▀______█▄▀▀▀▀█▀░░░░▐▓█████▄▄██▓▓__███▓▓▓▓▓████▓▓▓▓█▓▓▓▓▓▓▓█');
+            writeln('_____________________▄▄__▓_▐█▌░░░░▐▓████████▓▓__██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓▓▓▓▓▓█');
+            writeln('_______________________▓__▓▀█░░░░░░░▓███████▓▓_▐█▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓▓▓▓▓▓█');
+            writeln('________________________▓__▓▀░░░░░░░_▓██████▓▓__█▓▓▓▓▓▓▓▓█▓▓▓▓▓██▓▓▓▓▓▓▓█');
+            writeln('________________________▓▓░░░░░░░░░░_▓▓▓▓▓▓___▐█▓▓▓▓▓▓▓▓▓█████▓▓▓▓▓▓▓▓█');
+            writeln('_______________________▓░░░░▄░░░░░░░░░_________░░█▓▓▓▓▓▓▓▓▓▓▓█▓▓████████');
+            writeln('_______________________▓░░░▀░░▄▄░░░░░░░░░░░░░░██▓▓▓▓▓▓▓▓▓▓▓█▓▓▓██');
+            writeln('________________________▓▓▓▄▄█___█▀░░░░░░░░░░░░░██▓▓▓▓▓▓▓▓▓▓█▓▓▓▓██');
+            writeln('_____________________________▀▄__█░░░░░░░░░░░░░▓▓▓██▓▓▓▓▓▓▓▓▓█▓▓▓▓▓█');
+            writeln('________________________________█▓▓░░░░░░░▓▓▓▓_______██▓▓▓▓▓▓▓█▓▓▓▓▓▓█');
+            writeln('_____________________________________▓▓▓▓▓▓▓_____________▄▄███████▓▓▓▓▓▓█');
+            writeln('_________________________________________________________▄█▓▓▓▓▓▓▓▓▓▓▓▓▓▓█');
+            writeln('_________________________________________________________█▓▓▓▓▓▓▓▓▓▓▓▓▓▓█');
+            writeln('________________________________________________________▐█▓▓▓▓▓██▀▀█████');
+            writeln('__________________________________________________________█▓▓▓▓▓▓█▄');
+            writeln('____________________________________________________________▀▀█▓▓▓▓███▀');
+            writeln('________________________________________________________________▀▀▀▀');
+        end;
+        3:begin
+            writeln('_______________________▓▓▓▓▓▓▓▓▓▓▓▓__________▂▂▂');
+            writeln('____________▓▓▓▓▓▓▓▓▓▒▒▒▒▒▐▒▐▒▒▒▓▓▓▓▓__▒░░░▒');
+            writeln('________▓▓▓▓▒▒▒▀▀▅▅▄▄▒▒▒▒▒▒▐▒▐▒▒▒▒▒▒▒▒▒░░░░▒');
+            writeln('______▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▀▄▒▒▒▒▐▒▐▒▒▒▒▒▒▒▒░░░░░▒▒');
+            writeln('___▓▓▓▒▒▒▒▄▄▄▄▄▒▒▒▒▒▒▒▀▒▒▒▒░░░░░░░░▒▒░░░░▒░▒');
+            writeln('__▓▓▓▄▅▀▀▀▒▒▒▒▒▒▀▀▀▅▒▒▒░░░░░░░░░░░░░░░░░░░▒░▒');
+            writeln('__▓▓▀▒▒▒▒▒▒▄▄▄▄▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░▒░░▒');
+            writeln('_▓▓▒▒▒▒▒▅▅▀▀▒▒▒▀▅▒▒░░░░░░░░░░░░░░░░░░░░░░▒░░░▒');
+            writeln('_▓▓▒▒▒▅▀▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░▒░░░░▒▓');
+            writeln('▓▓▒▒▒▌▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░▓▒▓');
+            writeln('_▓▒▒▒▌▒▒▒▒▒▒▒▒▒▒░░░░░▄▄▄▄░░░░░░░░░░░░░░░░░░▓▒▒▓');
+            writeln('_▓▒▒▒▌▒▒▒▒▒▒▒▒▒▒░░░░█▀▀▀▀▀▅▅░░░░░░░░░░░░░░░▓▒▒▒▓');
+            writeln('_▓▒▒▒▌▒▒▒▒▒▒▒▒▒▒░░░░█____▓▓▓█▀▅▄░░░▄░░░░░░░░▓▒▒▒▓');
+            writeln('__▓▒▒▒▌▒▒▒▒▒▒▒▒▒░░░░▐___▓▓▓█▌____█▀▀░░▄░░░░░▓▒▒▒▒▓');
+            writeln('___▓▒▒▐▌▒▒▒▒▒▒▒▒▒░░░░▐__▓▓▓██▄____███▀▀░▄░░░▓▒▒▒▒▓');
+            writeln('____▓▒▒▒▌▒▒▒▒▒▒▒▒▒░░░░___▓▓▐█__█▄▄▓░░▀▀▀░░░▓▓▒▒▒▐▒▓');
+            writeln('_____▓▒▒▒▌▒▒▒▒▒▒▒▒░░░░░___▓▓██████▓░░░░░░░▓▒▒▒▒▒▐▒▓');
+            writeln('______▓▒▒▒▌▒▒▒▒▒▒▒░░░░░░░__▓▓▀███▀▓░░░░░░▓▒▒▒▒▒▒▐▒▓');
+            writeln('_______▓▒▒▒▌▒▒▒▒▒░░░░░░░░____▓▓▓▓▓_░░░░░░▓▒▒▒▒▒▒▐▒▐▓');
+            writeln('_________▓▒▒▒█▒▒▒░▅▀░░░░░░░░░░░░░░░░░░░░▓▒▒▒▒▒▒▐▒▐▓');
+            writeln('___________▓▓▒▒▌▒▒▒░░░▐░░░░░░░░░░░░░░░░▓▒▒▒▒▒▒▐▒▒▌▓');
+            writeln('____________▓▓▒▒▐▌▒▒▒░▀░░░░░░░░░░░▒▒░░▓▒▒▒▒▒▒▒▐▒▐▒▓');
+            writeln('______________▓▐▒▒▐▒▒▒▒▒▒▒▒▒▓_______▒░░▓▒▒▒▒▒▒▒█▒▒█▒▓');
+            writeln('________________▓▌▒▒▐▒▒▒▒▒▒▒▒▓______▒░▓▒▒▒▒▒▒▒█▒▒█▒▒▓');
+            writeln('_________________▓▐▒▒▀▌▒▒▒▒▒▒▓______▒▓▒▒▒▒▒▒▒█▒▒█▒▒▒▓');
+            writeln('__________________▓▒▐▒▒▐▒▒▒▒▒▓______▓▓▒▒▒▒▒█▀▒▒█▒▒▒▒▓');
+            writeln('___________________▓▒▐▒▒▐▒▒▒▒▓_____▓▓▒▒▒▒▄▀▒▒▄▀▒▒▒▒▒▓');
+            writeln('_______▓▓▓▓▓_____▓▒▐▒▒▒▌▒▒▓_____▓▓▒▒▒▄▀▒▒▄▀▒▒▒▒▒▓▓');
+            writeln('_____▓▓▒▓____▓____▓▒▐▒▒▒▐▒▒▓___▓▓▒▒▒▄▀▒▒▄▀▒▒▒▒▒▒▓');
+            writeln('_____▓▒▒▓________▓▒▒▒▌▒▒▒▌▓____▓▒▒▒▄▀▒▒▄▀▒▒▒▒▒▒▒▓');
+            writeln('_____▓▒▒▓______▓▒▒▒▒▌▒▒▒▌▓____▓▒▒▄▀▒▒▄▀▒▒▒▒▒▒▒▓');
+            writeln('______▓▒▒▓▓▓▓▓▒▒▒▒▐▒▒▒▒▓____▓▒▒█▒▒▒█▒▒▒▒▒▒▒▒▓');
+            writeln('________▓▒▒▒▒▒▒▒▒▒▐▒▒▒▓▓_____▓▒█▒▒▒█▒▒▒▒▒▒▒▒▓');
+            writeln('_________▓▓▒▒▒▒▒▒▒▐▒▓▓▓______▓▒▌▒▒▒▌▒▒▒▒▒▒▒▒▓');
+            writeln('____________▓▓▓▓▓▓▓▓▓__________▓▌▒▒▒▌▒▒▒▒▒▒▒▒▓');
+            writeln('___________________________________▓▓▒▒▌▒▒▒▒▒▒▒▒▓');
+            writeln('___________________________________▓▒▒▒▌▒▒▒▒▒▒▒▓');
+            writeln('___________________________________▓▒▒▒▌▒▒▒▒▒▒▒▓');
+            writeln('____________________________________▓▒▒▐▒▒▒▒▒▒▒▓____▓▓▓');
+            writeln('_____________________________________▓▒▒▐▒▒▒▒▒▒▒▓_______▓');
+            writeln('______________________________________▓▓▒▐▒▒▒▒▒▒▒▓▓____▓▓');
+            writeln('_________________________________________▓▌▒▒▒▒▒▒▒▒▓▓▓▒▓');
+            writeln('____________________________________________▓▓▒▒▒▒▒▒▒▒▒▓');
+            writeln('________________________________________________▓▓▓▓▓▓▓');
+        end;
+        4:begin
+            writeln('__________________________________▓▓▓▓▓▓');
+            writeln('_________________________▓▓▓▓▓▓░░░░░░░▓▓▓▓▓');
+            writeln('_____________________▓▓▓▒▒▒▒▒▒▒░░░░░▓▓▓▓▓▓▓▓▓');
+            writeln('______▒▒_________▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒░░░░░▓___▓▓▓');
+            writeln('____▒▒▒▒▒___▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒░░░▓');
+            writeln('___▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▓▒▒░▓▓');
+            writeln('__▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▓▒▒▒▓▓');
+            writeln('__▒▒▒▓▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓▓▒▒▒▓');
+            writeln('_▒▒▒▒▓▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▓▒▒▒▓');
+            writeln('_▒▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▓▓▓▓▓');
+            writeln('__▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓_____▓');
+            writeln('__▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓');
+            writeln('___▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▒▒▒▓▓▓▓▓▒▒▒▒▒▒▓');
+            writeln('____▒▒▒▒▒▒▅▅▄▒▒▒▒▒▒▒▒▒▒▒▓▓▓▒▒▒▒▒▒▓▓▓▒▒▒▒▒▓▓');
+            writeln('___▓░▒▒▒▒▅▅▅▅█▀▀▀▅▅▅▅▄▄▒▒▒▒▓▒█▒▒▄▒▒▒▄▅▓▒▒▒▒▒▓');
+            writeln('___▓░░▒▒▒▒▄▅▅▌________▓_▀▀██▅▄█▒▒▀▀▀__█');
+            writeln('__▓░░░░▓▒▒▒▒▒_________▓____▐██▒▒▒▒▒▌▓__█');
+            writeln('__▓░░░░▓▒▒▒▒▒_________▓__▄███▌▒▒▒▒▐_▓██');
+            writeln('__▓░░░░░▓▒▒▒▒▒________▓▓█__██▒▒▒▒▒▒▓▌▐');
+            writeln('_▓▒▒░░░░░▓▒▒▒▒▒_______▓█████▒▒▒▒▒▒▒██');
+            writeln('_▓▒▒░░░░░░▓▓▓▒▒▒▒_____▓███▀▒▒▒▒▒▒▒▒▒▒▒');
+            writeln('_▓▒▒▒░░░░░░░░░▓▓▓▓▒▒__▓▒▒▒▒▒▒▒_▒▒▀▀▒▒');
+            writeln('_▓▒▒▒▒░░░░░░░░░▓▓▒▒▒▒▒▒▒▒▒▒▒▒___▒▒▒▒');
+            writeln('__▓▒▒▒▒▒░░░░▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒__▄▀');
+            writeln('__▓▓▒▒▒▒▒░░░░░▓____▒▒▒▒▒▒▒▒▒▒▒▀');
+            writeln('___▓▓▒▒▒▒▒▒░░░░░▓');
+            writeln('___▓▓▓▒▒▒▒▒▒▒░░░░▓');
+            writeln('____▓▓▓▒▒▒▒▒▒▒░░░░▓');
+            writeln('____▓▓▓▓▓▒▒▒▒▒▒▒░░▓');
+            writeln('______▓▓▓▓▓▒▒▒▒▒▒▒░▓');
+            writeln('______▓▓▓▓▓▓▒▒▒▒__▓▓');
+            writeln('________▓▓▓▓▓▓▒▒▓___▓');
+            writeln('_________▓▓▓▓▓▓▒▒▓');
+            writeln('__________▓▓▓▓▓▓▒▓');
+            writeln('___________▓▓▓▓▓▓▓');
+            writeln('____________▓▓▓▓▓');
+            writeln('____________▓▓▓▓');
+            writeln('___________▓▓▓');
+            writeln('__________▓▓');
+        end;
+        5:begin
+            writeln('__________________________________________▓▓▓');
+            writeln('_________________________________________▓▒▒▒▓▓');
+            writeln('____________________▄▄▄▄▄▄▄▄▄__________▓▒▒▒▒▒▓');
+            writeln('___▓▓▓▓▓____▄█████▓▓▓▓▓▓░░███████▓▒▒▒▒▓▒▓');
+            writeln('____▓▒▓▒▓▓▓██▓█▓▓▓▓▓▓▓░░░▓▓▓▓▓▓▓▓▒▒▒▒▒▓▒▓');
+            writeln('______▓▒▒▒▓▒▒▓▓▓▓▓▓▓▓░░░▓▓▓▓▓▓▓▓█▒▒▒▒▒▒▓▒▓');
+            writeln('______█▓▓▒▒▓▒▒▓▒▒▓▓▓░░░▓▓▓▓▓▓▓▓█▒▒▒▒▒▒▒▓▒▓');
+            writeln('____▄█▓▓█▓▓▓▒▒▒▓▒▓▓░░░░▓▓▓▓▓▓▓▓█▒▒▒▒▒▒▓▒▒▓');
+            writeln('___█▓▓▓█▓▓█▓▓▒▓▒▓▓▓░░░░▓▓▓▓▓▓▓▓▓█▒▒▒▒▓▒▒▒▓');
+            writeln('__█▓▓▓█▓▓█▓▓▓▓▓▓▓▓▓░░░█████████████▒▒▒▒▒▒▓');
+            writeln('__█▓▓▓█▓▓█▓▓▓▓▓▓██████▒▌__▓█_____▓▓▒▒▒▒▒▒▒▓');
+            writeln('_▐█▓▓█▓▓▓█▓▓████▒▒▒▒▒▒▌__▓▓█▄____▓▓▒▒▒▒▒▒▓');
+            writeln('_▐█▓█▓▓▓▓███▒▒▒▒▒▒▒▒▒▒▌__▓▓█████▓▓▒▒▒▒▒▒▓');
+            writeln('__█▓█▓▓██_▅▄██▄▒▒▒▒▒▒▒▐___▓▓█▄_██▓▓▄▅▅▒▒▒▓');
+            writeln('__█▓▓██__▅▄▄▄▌__▀▄▒▒▒▒▒▐___▓▓▓████▓▅▅▄▒▒▒█');
+            writeln('__█▓█_________▓▄___▀▒▒▒▒▒▐____▓▓▓▓▓▓▅▅▄▒▒▒██');
+            writeln('__██___________▓▓█▀█▄▒▒▒▒▒▌________▒▒▒▒▒▒█▓█▌');
+            writeln('_________________▓▓███▒▒▒▒▒▐____▒▒▒██▒▒██▓██▌');
+            writeln('___________________▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒█▓▓██▓▓██▓▌');
+            writeln('____________________▓▒▒▄▒▒▌▒▒▒▒▒▒▒█▓▓▓▓██▓▓▓█');
+            writeln('___________________▓▒▒▒▒▒▐▒▒▒▒▒▒▒█▓███▓▓▓█▓▓█▌');
+            writeln('_____________________▓▓▓▄▀▒▒▒▒▓▓▓█▓▓▓▓▓▓█▓▓▓▓██');
+            writeln('_________________________▓▓▓▓▓▓____█▓▓██▀▀█▓▓▓▓░░█');
+            writeln('______________________________________▀▀__▄█▓▓▓▓▓░░▓█');
+            writeln('_______________________________________▄██▓▓▓▓▓▓░░▓▓█');
+            writeln('_____________________________________██▓▓▓▓▓▓▓▓░░▓▓█');
+            writeln('______________________________________█▓▓▓▓▓▓▓░░░▓▓█');
+            writeln('_______________________________________█▓▓▓▓▓░░░▓▓▓█');
+            writeln('________________________________________█▓▓▓░░░▓▓▓▓█');
+            writeln('__________________________________________██░░░▓▓▓▓█');
+            writeln('_____________________________________________█░▓▓▓█');
+            writeln('_______________________________________________████');
+        end;
+    end;
     {Запуск игры}
-    Main; {Ненавижу китайскую нотацию.}
+    Main; 
 end.
