@@ -269,18 +269,25 @@ type
     function ReadChineseNotation(var game:Game_t):Move_t;
     var 
         i,offset:integer;
-        y,offsetChr,offsetTy:char;
+        y,offsetChr,offsetTy,j:char;
         move:Move_t;
+        searchAllTable:boolean;
         searchTy:char = '=';
     begin
         read(move.kind);
         read(y);
+        searchAllTable := false;
         if( y = '^' ) or ( y = 'v' ) then begin
             searchTy := y;
             read(y);
         end;
-        y := fixYCoordinates(chr(ord(y) - ord('1') + ord('a')),game.turn);
-        read(offsetTy);
+        if (searchTy in ['^','v']) and (y in ['+','-','=']) then begin
+            searchAllTable := true;
+            offsetTy := y;
+        end else begin
+            y := fixYCoordinates(chr(ord(y) - ord('1') + ord('a')),game.turn);
+            read(offsetTy);
+        end;
         if(not (offsetTy in ['+','-','='])) then begin
             move.kind := None;
             readln;
@@ -292,11 +299,53 @@ type
         offset := ord(offsetChr) - ord('0');
         move.from.x := -1;
         {поиск фигуры, если ход белых и требуется нижняя фигура или черные и верхняя,то идем снизу в верх, если нет указания на нижний/верхний, то проверка на единственность фигуры}
-        if(game.turn = White) and (searchTy = 'v') or (game.turn = Black) and (searchTy = '^') then begin 
+        if(searchAllTable) then begin
+            if(game.turn = White) and(searchTy = 'v') or (game.turn = Black) and (searchTy = '^') then begin
+                for i := 0 to Height - 1 do begin
+                    searchAllTable := false; {флаг состояния поиска, false -  если на данной горизонтали еще не встретилось такой фигуры, true - иначе}
+                    for j := 'a' to 'i' do begin
+                        if(game.table[i,j].kind = move.kind) and (game.table[i,j].color = game.turn) then begin
+                            if searchAllTable then begin
+                                writeln('Two or more figures at 1 h.line. Incorrect.');
+                                move.kind := None;
+                                ReadChineseNotation := move;
+                                exit;
+                            end;
+                            searchAllTable := true;
+                            move.from.x := i;
+                            move.from.y := j;
+                        end;
+                    end;
+                    if(searchAllTable) then begin
+                        break;
+                    end;
+                end;
+            end else if(game.turn = White) and(searchTy = '^') or (game.turn = Black) and (searchTy = 'v') then begin
+                for i := Height-1 downto 0 do begin
+                    searchAllTable := false; {флаг состояния поиска, false -  если на данной горизонтали еще не встретилось такой фигуры, true - иначе}
+                    for j := 'a' to 'i' do begin
+                        if(game.table[i,j].kind = move.kind) and (game.table[i,j].color = game.turn) then begin
+                            if searchAllTable then begin
+                                writeln('Two or more figures at 1 h.line. Incorrect.');
+                                move.kind := None;
+                                ReadChineseNotation := move;
+                                exit;
+                            end;
+                            searchAllTable := true;
+                            move.from.x := i;
+                            move.from.y := j;
+                        end;
+                    end;
+                    if(searchAllTable) then begin
+                        break;
+                    end;
+                end;
+            end;
+        end else if(game.turn = White) and (searchTy = 'v') or (game.turn = Black) and (searchTy = '^') then begin 
             for i := 0 to Height - 1 do begin
                 if (game.table[i,y].kind = move.kind) and (game.table[i,y].color = game.turn) then begin
                     if searchTy = '@' then begin
-                        writeln('Two figures at 1 line. Incorrect.');
+                        writeln('Two or more figures at 1 v.line. Incorrect.');
                         move.kind := None;
                         ReadChineseNotation := move;
                         exit;
@@ -312,7 +361,7 @@ type
             for i := Height -1  downto 0 do begin
                 if (game.table[i,y].kind = move.kind) and (game.table[i,y].color = game.turn) then begin
                     if searchTy = '@' then begin
-                        writeln('Two figures at 1 line. Incorrect.');
+                        writeln('Two or more figures at 1 v.line. Incorrect.');
                         move.kind := None;
                         ReadChineseNotation := move;
                         exit;
@@ -1290,13 +1339,24 @@ type
             until not (Counter[j][color] >= Limits[j]);
             repeat
                 if j = 'E' then begin
-                    coord := RandomCoordinate(game,0+ord(color)*5,4+ord(color)*5,'a','i')
-                end else if j = 'A' then begin
-                    if(tries > 20) then begin
+                    if(tries > 40) then begin
                         Generate := false;
                         exit;
                     end;
-                    coord := RandomCoordinate(game,0+ord(color)*7,2+ord(color)*7,'d','f');
+                    repeat 
+                        coord := RandomCoordinate(game,0+ord(color)*5,4+ord(color)*5,'a','i');
+                    until ((coord.x in [0,2,4,9,7,5]) and ((coord.y) in ['a','c','e','g','i']));
+                    inc(tries);
+                end else if j = 'S' then begin
+                    coord := RandomCoordinate(game,3 - ord(color)*3,6 + (1-ord(color))*3,'a','i');
+                end else if j = 'A' then begin
+                    if(tries > 30) then begin
+                        Generate := false;
+                        exit;
+                    end;
+                    repeat
+                        coord := RandomCoordinate(game,0+ord(color)*7,2+ord(color)*7,'d','f');
+                    until (coord.y in ['d','f']) and (coord.x in [0 + 7*ord(color),2+7*ord(color)]) or (coord.x = 1 + 7*ord(color)) and (coord.y = 'e');
                     inc(tries);
                 end else begin
                     coord := RandomCoordinate(game,0,9,'a','i');
@@ -1503,7 +1563,7 @@ begin
     case random(6) of
             0: begin
             writeln('_______________________________________________▐█▄▄');
-            writeln('__________________________________▄____________█▓▓█▄');
+            writeln('_________________________________▄_____________█▓▓█▄');
             writeln('________________________________▄█_____________█▓▓▓▓█▄');
             writeln('______________________________▄▓▓█_____________█▓▓▓▓▓▓█▄');
             writeln('____________________________█▓▓▓▓█____________█▓▓▓▓▓▓▓▓█▄');
@@ -1517,7 +1577,7 @@ begin
             writeln('__________▄▄████▓▓▓▓▓▓▓▓░░_________________________░░_______░░░░');
             writeln('_______▄█▓▓▓▓█▓▓▓▓▓▓▓▓░__░░░░░░░░░░░░░░__________░░_______░');
             writeln('_____▄█▓▓▓▓██▓▓▓▓▓▓▓░░░░___________________░░░_______░░_______░');
-            writeln('____█▓▓▓▓▓█▓▓▓▓▓▓▓▓░___________________________░░________░_______░____________░░░');
+            writeln('____█▓▓▓▓▓█▓▓▓▓▓▓▓▓░___________________________░░________░_______░___________░░░');
             writeln('___█▓▓▓▓▓█▓▓▓▓▓▓▓▓░______________________________░░_______░░_______░░░░░░░░__░');
             writeln('__█▓▓▓▓▓▓▓▓▓▓▓▓▓▓░______________________░__________░░░______░░_______________░░');
             writeln('_█▓▓▓▓▓▓▒▒▒▒▒▒▓▓▓░______░░░░░__________░____________░░░______░░░__________░');
@@ -1558,7 +1618,7 @@ begin
             writeln('__________________________________________░___░░░░░░░░░░');
         end;
         1: begin
-            writeln('__________________________________________▒▒▒');
+            writeln('_________________________________________▒▒▒');
             writeln('_____________________________________▄██▒░░░▒█████████▄▄');
             writeln('_________________________________▄███▓▓▒░░░▒▓▓▓▓█▓▓▓▓▓████▄');
             writeln('_____________________________▄██▓▓▓▓▓▒░▒░░▒▓▓██▓▓▓▓██▓▓▓▓▓███▄▄');
@@ -1569,7 +1629,7 @@ begin
             writeln('_______________▄█▓▓████▓▓█▓▓▓▓▓▓▒░░▒▒░░░░▒▓█▓▓▓▓▓█▓▓▓█▓▓▓▓▓▓▓▓█▀');
             writeln('______________▄█▓▓▓████▓█▓▓▓▓▓▓▒▒░░░░▒▒▒▒▒█▓▓▓▓▓█▓▓▓█▓▓▓▓▓▓▓█▀');
             writeln('_____________██▓▓▓▓███▓█▓▓▓▓▓▓▓▒░▒░░░░░░▒▒▓▓▓▓▓▓█▓▓█▓▓▓▓▓▓▓█');
-            writeln('___________██▓▓▓▓▓▓███▓█▓▓▓▓▓▓▒▒░░▒░░░░▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓▓███_______▄▄▄▄');
+            writeln('___________██▓▓▓▓▓▓███▓█▓▓▓▓▓▓▒▒░░▒░░░░▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓▓███______▄▄▄▄');
             writeln('___________█▓▓▓▓▓▓▓███▓█▓▓▓▓▓▓▒▒░░░░▒▒▒▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓██▓▓█████▓▓▓▓█');
             writeln('__________██▓▓▓▓▓▓▓████▓▓▓▓▓▓▒▒░░░░░░░░▒▒▓▓▓▓▓▓▓█▓█▓▓▓▓▓█▓▓▓▓██▓▓█▓▓▓▓█');
             writeln('_________█▓▓█▓▓▓▓▓▓▓███▓▓▒▒▒▒░░░░░░░░░░░▒▒▒▒▒▓▓▓▓█▓█▓▓▓██▓▓▓▓████▓▓▓▓▓█');
@@ -1618,7 +1678,7 @@ begin
             writeln('____________________________▀');
         end;
         2:begin
-            writeln('____________________________________▄▄████████▄▄');
+            writeln('________________________________▄▄████████▄▄');
             writeln('______________________________▄█▓▓▓▓▓▓▓▓▓▓▓▓█▄');
             writeln('_____________________________█▓▓███▓▓▓▓▓▓▓▓▓█▓█____________▄▄▄▄▄');
             writeln('____________________________▐███▓▓▓██▓▓▓▓▓▓▓█▓▓█_______▄██▓▓▓▓▓█▄');
@@ -1660,7 +1720,7 @@ begin
             writeln('________________________________________________________________▀▀▀▀');
         end;
         3:begin
-            writeln('_______________________▓▓▓▓▓▓▓▓▓▓▓▓__________▂▂▂');
+            writeln('__________________▓▓▓▓▓▓▓▓▓▓▓▓__________▂▂▂');
             writeln('____________▓▓▓▓▓▓▓▓▓▒▒▒▒▒▐▒▐▒▒▒▓▓▓▓▓__▒░░░▒');
             writeln('________▓▓▓▓▒▒▒▀▀▅▅▄▄▒▒▒▒▒▒▐▒▐▒▒▒▒▒▒▒▒▒░░░░▒');
             writeln('______▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▀▄▒▒▒▒▐▒▐▒▒▒▒▒▒▒▒░░░░░▒▒');
@@ -1698,7 +1758,7 @@ begin
             writeln('___________________________________▓▓▒▒▌▒▒▒▒▒▒▒▒▓');
             writeln('___________________________________▓▒▒▒▌▒▒▒▒▒▒▒▓');
             writeln('___________________________________▓▒▒▒▌▒▒▒▒▒▒▒▓');
-            writeln('____________________________________▓▒▒▐▒▒▒▒▒▒▒▓____▓▓▓');
+            writeln('____________________________________▓▒▒▐▒▒▒▒▒▒▒▓_____▓▓▓');
             writeln('_____________________________________▓▒▒▐▒▒▒▒▒▒▒▓_______▓');
             writeln('______________________________________▓▓▒▐▒▒▒▒▒▒▒▓▓____▓▓');
             writeln('_________________________________________▓▌▒▒▒▒▒▒▒▒▓▓▓▒▓');
@@ -1716,7 +1776,7 @@ begin
             writeln('__▒▒▒▓▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓▓▒▒▒▓');
             writeln('_▒▒▒▒▓▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▓▒▒▒▓');
             writeln('_▒▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▓▓▓▓▓');
-            writeln('__▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓_____▓');
+            writeln('__▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓___▓');
             writeln('__▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▓');
             writeln('___▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▓▒▒▒▓▓▓▓▓▒▒▒▒▒▒▓');
             writeln('____▒▒▒▒▒▒▅▅▄▒▒▒▒▒▒▒▒▒▒▒▓▓▓▒▒▒▒▒▒▓▓▓▒▒▒▒▒▓▓');
